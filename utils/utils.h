@@ -23,8 +23,8 @@ extern struct bflb_device_s *gpio_dev;
 #if defined(TANG_NANO20K)
 #define GPIO_PIN_JTAG_TMS GPIO_PIN_16
 #define GPIO_PIN_JTAG_TCK GPIO_PIN_10
-#define GPIO_PIN_JTAG_TDI GPIO_PIN_14
-#define GPIO_PIN_JTAG_TDO GPIO_PIN_12
+#define GPIO_PIN_JTAG_TDI GPIO_PIN_12
+#define GPIO_PIN_JTAG_TDO GPIO_PIN_14
 #else
 #define GPIO_PIN_JTAG_TMS GPIO_PIN_0
 #define GPIO_PIN_JTAG_TCK GPIO_PIN_1
