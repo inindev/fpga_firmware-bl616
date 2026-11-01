@@ -8,7 +8,7 @@
 #include "semphr.h"
 #include "bflb_mtimer.h"
 
-#include "usb_gamepad.h"
+#include "gamepad.h"
 #include "hidparser.h"
 
 #include "overlay.h"
@@ -72,12 +72,14 @@ static struct usb_config {
 TaskHandle_t usb_handle;
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t hid_buffer[CONFIG_USBHOST_MAX_HID_CLASS][MAX_REPORT_SIZE];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t xbox_buffer[CONFIG_USBHOST_MAX_XBOX_CLASS][XBOX_REPORT_SIZE];
+// Report descriptors are fetched and parsed one at a time in usbh_update(),
+// so one buffer serves every HID interface.
+#define MAX_HID_REPORT_DESC_SIZE 2048
+USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t report_desc[MAX_HID_REPORT_DESC_SIZE];
 
 // keep a map of joysticks to be able to report
 // them individually
 static uint8_t joystick_map = 0;
-
-#define DEBUG_ON
 
 void overlay_status(const char *fmt, ...);
 #define INFO(fmt, ...) overlay_status(fmt, ##__VA_ARGS__)
@@ -168,10 +170,16 @@ static void usbh_update(struct usb_config *usb) {
             if (vendor_id == 0x2dc8 && product_id == 0x3107) {  // 8bitdo wireless adapter
                 skip = true;
             }
-            // DEBUG("report descriptor: %p", usb->hid_info[i].hid_class->report_desc);
-            
+            // fetch the report descriptor (the SDK no longer keeps a copy)
+            struct usbh_hid *hid_class = usb->hid_info[i].hid_class;
+            if (!skip && (hid_class->report_size > sizeof(report_desc) ||
+                          usbh_hid_get_report_descriptor(hid_class, report_desc, hid_class->report_size) < 0)) {
+                INFO("HID %d: can't read report descriptor\n", i);
+                skip = true;
+            }
+
             // parse report descriptor ...
-            if(skip || !parse_report_descriptor(usb->hid_info[i].hid_class->report_desc, 128, &usb->hid_info[i].report, NULL)) {
+            if(skip || !parse_report_descriptor(report_desc, hid_class->report_size, &usb->hid_info[i].report, NULL)) {
                 usb->hid_info[i].state = STATE_FAILED;   // parsing failed, don't use
                 return;
             }

@@ -21,13 +21,17 @@ extern "C" {
 #include "bl616_clock.h"
 
 #include "usbh_core.h"
+#include "usbh_msc.h"
 #include "ff.h"
 #include "fatfs_diskio_register.h"
+
+// fatfs_diskio_register.h declares this only when the SD card driver is off
+void fatfs_usbh_driver_register(struct usbh_msc *msc_class);
 }
 
 #include "file_chooser.h"
 #include "programmer.h"
-#include "usb_gamepad.h"
+#include "gamepad.h"
 #include "utils.h"
 #include "cores.h"
 #include "overlay.h"
@@ -49,6 +53,10 @@ struct core_info *core;
 struct bflb_device_s *gpio_dev;
 struct bflb_device_s *uart0_dev;
 struct bflb_device_s *uart1_dev;
+
+// C++ registers global destructors against this; the SDK doesn't define it.
+// The firmware never exits, so they never run (same as the SDK's C++ example).
+void *__dso_handle = NULL;
 
 // USB and fatfs
 struct usbh_msc *msc;
@@ -556,6 +564,31 @@ static void print_system_info(void) {
     // overlay_status("                                ");
 }
 
+// USB drive: CherryUSB calls usbh_msc_run() when one is connected. SCSI init
+// blocks, so it runs in a short-lived task, then the drive is registered as "usb:".
+static void usbh_msc_thread(void *arg)
+{
+    struct usbh_msc *msc_class = (struct usbh_msc *)arg;
+    if (usbh_msc_scsi_init(msc_class) < 0) {
+        overlay_status("USB drive init failed");
+    } else {
+        fatfs_usbh_driver_register(msc_class);
+        msc = msc_class;
+    }
+    vTaskDelete(NULL);
+}
+
+extern "C" void usbh_msc_run(struct usbh_msc *msc_class)
+{
+    xTaskCreate(usbh_msc_thread, "usbh_msc", 1024, msc_class, CONFIG_USBHOST_PSC_PRIO - 1, NULL);
+}
+
+extern "C" void usbh_msc_stop(struct usbh_msc *msc_class)
+{
+    if (msc == msc_class)
+        msc = NULL;
+}
+
 // Initialize things, then start main_task and uart1_rx_task to do actual work
 int main(void)
 {
@@ -579,8 +612,9 @@ int main(void)
 
     // Initializing USB host...
     overlay_status("Initializing USB host...");
-    usbh_initialize();
-    fatfs_usbh_driver_register();
+    // USB drives are registered in usbh_msc_run() when they connect
+    struct bflb_device_s *usb_dev = bflb_device_get_by_name(BFLB_NAME_USB_V2);
+    usbh_initialize(0, usb_dev->reg_base, NULL);
     usb_gamepad_init();
 
     overlay_status("Creating tasks...");
