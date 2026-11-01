@@ -388,10 +388,13 @@ static void main_task(void *pvParameters)
 
     // wait for drive to be ready
     uint64_t start = bflb_mtimer_get_time_ms();
-    FRESULT res;
+    FRESULT res = FR_NOT_READY;
+#ifndef TANG_NANO20K
+    // Nano 20K: no SD card on the BL616, go straight to USB
     overlay_status("Mounting sd card...", drv);
     while ((res = f_mount(&fs, "sd:", 1)) != FR_OK && bflb_mtimer_get_time_ms() - start < 500)
         delay(100);
+#endif
 
     if (res == FR_OK) {
         overlay_status("SD card mounted in %d ms", bflb_mtimer_get_time_ms() - start);
@@ -568,8 +571,10 @@ int main(void)
     // Create mutex for joypad states
     state_mutex = xSemaphoreCreateMutex();
 
+#ifndef TANG_NANO20K
     overlay_status("Initializing SDH...");
     fatfs_sdh_driver_register();        // calls SDH_Init()
+#endif
     // f_mount(&fs_sd, "sd:", 0);          // registers SDMMC drive 
 
     // Initializing USB host...

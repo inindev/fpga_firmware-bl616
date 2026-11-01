@@ -53,7 +53,8 @@ void init_gpio_and_uart() {
     /* Set up Core control UART parameters */
     struct bflb_uart_config_s uart1_cfg = {
         // .baudrate = 1000000,
-#if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
+#if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K) || defined(TANG_NANO20K)
+        // Nano 20K: the BL616 has a 40 MHz crystal (schematic)
         .baudrate = 2000000,
 #else
         // all other boards have 26Mhz XTAL
@@ -83,6 +84,9 @@ void init_gpio_and_uart() {
     *reg_gpio_tdo = GPIO_HIGH_Z;
     *reg_gpio_tdi = GPIO_HIGH_Z;
 
+#ifndef TANG_NANO20K
+    // Nano 20K: the TF slot is wired to the FPGA only, and GPIO 10-16 are the
+    // JTAG and UART pins, so the SD setup below must not run there.
     // Initialize SD pins
     board_sdh_gpio_init();
     // bflb_gpio_init(gpio, GPIO_PIN_10, GPIO_FUNC_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_2);  // D1
@@ -95,4 +99,5 @@ void init_gpio_and_uart() {
     // Set GPIO 1 (physical pin 15) to high to enable SDMMC
     bflb_gpio_init(gpio_dev, GPIO_PIN_16, GPIO_OUTPUT | GPIO_FLOAT | GPIO_SMT_EN | GPIO_DRV_3);
     bflb_gpio_set(gpio_dev, GPIO_PIN_16);
+#endif
 }
