@@ -11,7 +11,8 @@ The `inindev` branch adds:
 - Tang Nano 20K support: JTAG pins, no BL616 SD card (the TF slot is wired to the FPGA),
   2 Mbaud core UART (the BL616 has a 40 MHz crystal)
 - the official Bouffalo SDK (CherryUSB 1.6) instead of nand2mario's patched SDK
-- USB hubs with up to 7 ports
+- USB hubs with up to 7 ports; bigger hubs use their first 7 instead of crashing
+  (needs the SDK patch in `patches/`)
 - status messages on row 24 of the menu, above the logo and clear of TV overscan
 
 Only the Tang Nano 20K has been tested on this branch.
@@ -34,12 +35,14 @@ Linux or macOS. You need:
 - **Toolchain:** T-Head GCC v2.6.1 (`xuantie-gcc-riscv-v2.6.1-linux-x86_64`, from
   [bouffalolab/toolchain](https://github.com/bouffalolab/toolchain)).
 - **SDK:** the official [Bouffalo SDK](https://github.com/bouffalolab/bouffalo_sdk), tested at
-  commit `237ed9378`. nand2mario's patched SDK no longer works with this branch. The SDK
-  brings its own cmake in `tools/cmake/bin`.
+  commit `237ed9378`, with the patch in [patches/](patches/README.md) applied (it fixes a
+  crash with hubs of 8 or more ports). nand2mario's patched SDK no longer works with this
+  branch. The SDK brings its own cmake in `tools/cmake/bin`.
 
 ```sh
 git clone https://github.com/bouffalolab/bouffalo_sdk.git
 git -C bouffalo_sdk checkout 237ed9378
+git -C bouffalo_sdk apply $PWD/fpga_firmware-bl616/patches/cherryusb-hub-nports-clamp.patch
 
 export BL_SDK_BASE=$PWD/bouffalo_sdk
 export PATH=/path/to/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin:$BL_SDK_BASE/tools/cmake/bin:$PATH
