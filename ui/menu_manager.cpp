@@ -35,7 +35,7 @@ void menu_input_loop() {
 
     DEBUG("Menu input loop\n");
     std::vector<int> options = menu_current()->get_options();
-    int last = 0, active = 0;
+    int active = 0;
     while (menu_is_active() && overlay_on()) {
         if (menu_current()->redraw) {
             menu_current()->render();
@@ -46,6 +46,7 @@ void menu_input_loop() {
         get_joypad_states(&joy1, &joy2, &hid1, &hid2);
         joy1 |= hid1;
         joy2 |= hid2;
+        uint16_t press = joy_press(joy1 | joy2);
 
         // DEBUG("Joy1: %04x, Joy2: %04x\n", joy1, joy2);
 
@@ -54,11 +55,13 @@ void menu_input_loop() {
             delay(300);
         }
 
-        if ((joy1 & 0x10) || (joy2 & 0x10)) {   // up
+        // one action per press: A/B win over up/down, up+down cancel
+        bool choose = press & (0x100 | 0x1);
+        if (!choose && (press & 0x30) == 0x10) {    // up
             if (active > 0) active--;
         }
-        if ((joy1 & 0x20) || (joy2 & 0x20)) {   // down
-            if (active < options.size()-1) active++;
+        if (!choose && (press & 0x30) == 0x20) {    // down
+            if (active < (int)options.size()-1) active++;
         }
 
         for (int i = 0; i < options.size(); i++) {
@@ -69,8 +72,7 @@ void menu_input_loop() {
                 overlay_printf(" ");
         }
 
-        if ((joy1 & 0x100) || (joy2 & 0x100) || // button A pressed
-            (joy1 & 0x1) || (joy2 & 0x1))       // button B pressed
+        if (choose)     // button A or B pressed
         {
             int depth = menu_stack.size();
             bool r = menu_current()->on_choose(active);
@@ -96,8 +98,6 @@ void menu_input_loop() {
             menu_current()->do_redraw();
         }
 
-        if (last != active)
-            delay(100);
-        last = active;
+        delay(10);
     }
 }

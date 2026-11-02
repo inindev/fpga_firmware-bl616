@@ -82,6 +82,7 @@ volatile uint16_t joy1_state = 0;
 volatile uint16_t joy2_state = 0;
 volatile uint16_t hid1_state = 0;
 volatile uint16_t hid2_state = 0;
+volatile uint16_t kbd_joy_state = 0;
 volatile int16_t core_id = -1;
 volatile uint8_t key_buf[4] = {0};
 SemaphoreHandle_t state_mutex;              // for all global state access
@@ -92,10 +93,30 @@ void get_joypad_states(uint16_t *joy1, uint16_t *joy2, uint16_t *hid1, uint16_t 
     if (xSemaphoreTake(state_mutex, portMAX_DELAY) == pdTRUE) {
         *joy1 = joy1_state;
         *joy2 = joy2_state;
-        *hid1 = hid1_state;
+        *hid1 = hid1_state | kbd_joy_state;
         *hid2 = hid2_state;
         xSemaphoreGive(state_mutex);
     }
+}
+
+#define JOY_DIRECTIONS    0x0030    // DN UP; left/right turn pages, so they don't repeat
+#define JOY_REPEAT_DELAY  400       // ms held before a direction repeats
+#define JOY_REPEAT_RATE   120       // ms between repeats
+
+uint16_t joy_press(uint16_t held) {
+    static uint16_t last;
+    static uint64_t next_repeat;
+    uint64_t now = bflb_mtimer_get_time_ms();
+
+    uint16_t act = held & ~last;            // newly pressed
+    if (act) {
+        next_repeat = now + JOY_REPEAT_DELAY;
+    } else if ((held & JOY_DIRECTIONS) && now >= next_repeat) {
+        act = held & JOY_DIRECTIONS;
+        next_repeat = now + JOY_REPEAT_RATE;
+    }
+    last = held;
+    return act;
 }
 
 // query over UART to return if the correct core is loaded

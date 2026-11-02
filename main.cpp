@@ -237,6 +237,7 @@ int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
     get_joypad_states(&joy1, &joy2, &hid1, &hid2);
     joy1 |= hid1;
     joy2 |= hid2;
+    uint16_t press = joy_press(joy1 | joy2);
 
     if ((joy1 == overlay_key_code) || (joy2 == overlay_key_code)) {
         overlay_status("OSD: %s", overlay_on() ? "ON" : "OFF");
@@ -249,20 +250,23 @@ int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
         return 0;
     }
 
-    if ((joy1 & 0x10) || (joy2 & 0x10)) {
+    // one action per press, as in FPGA-Companion: buttons win over left/right,
+    // and those over up/down. A diagonal used to move the cursor and then
+    // return before the old marker was erased.
+    if (press & 0x1)
+        return 1;      // button B pressed
+    if (press & 0x100)
+        return 4;      // button A pressed
+    if (press & 0x80)
+        return 2;      // next page
+    if (press & 0x40)
+        return 3;      // previous page
+    if ((press & 0x30) == 0x10) {
         if (*active > 0) (*active)--;
     }
-    if ((joy1 & 0x20) || (joy2 & 0x20)) {
+    if ((press & 0x30) == 0x20) {
         if (*active < len-1) (*active)++;
     }
-    if ((joy1 & 0x40) || (joy2 & 0x40))
-        return 3;      // previous page
-    if ((joy1 & 0x80) || (joy2 & 0x80))
-        return 2;      // next page
-    if ((joy1 & 0x100) || (joy2 & 0x100))
-        return 4;      // button A pressed
-    if ((joy1 & 0x1) || (joy2 & 0x1))
-        return 1;      // button B pressed
 
     overlay_cursor(0, start_line + (*active));
     overlay_printf(">");
@@ -272,8 +276,7 @@ int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
     if (last != *active) {
         overlay_cursor(0, start_line + last);
         overlay_printf(" ");
-        delay(100);     // button debounce
-    }    
+    }
     return 0;
 }
 

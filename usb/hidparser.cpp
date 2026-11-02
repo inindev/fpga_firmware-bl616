@@ -7,7 +7,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <set>
 
 #include "hidparser.h"
 #include "usb2ps2.h"
@@ -87,6 +86,25 @@ bool report_is_usable(uint16_t bit_count, uint8_t report_complete, hid_report_t 
 	return false;
 }
 
+// remember where a keyboard field sits in the report
+static void add_kbd_field(hid_report_t *conf, uint16_t offset, uint8_t size, uint8_t count,
+			  bool variable, uint16_t usage_min, uint16_t usage_max, uint16_t logical_min) {
+	if(conf->keyboard.num_fields >= MAX_KBD_FIELDS) {
+		hidp_debugf("KEYBOARD field @ %u dropped, more than %d fields", offset, MAX_KBD_FIELDS);
+		return;
+	}
+	hid_kbd_field_t *f = &conf->keyboard.field[conf->keyboard.num_fields++];
+	f->offset = offset;
+	f->size = size;
+	f->count = count;
+	f->variable = variable;
+	f->usage_min = usage_min;
+	f->usage_max = usage_max;
+	f->logical_min = logical_min;
+	hidp_debugf("KEYBOARD %s @ %u, size %u, count %u, usage %u-%u",
+		variable ? "bits" : "array", offset, size, count, usage_min, usage_max);
+}
+
 bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t *conf, uint16_t *rbytes) {
 	int8_t app_collection = 0;
 	int8_t phys_log_collection = 0;
@@ -102,6 +120,12 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 	uint16_t bit_count = 0, usage_count = 0;
 	uint16_t logical_minimum=0, logical_maximum=0;
 	uint16_t physical_minimum=0, physical_maximum=0;
+	uint16_t usage_page = 0;
+	// local usages, used to locate keyboard fields
+	uint16_t usage_min = 0, usage_max = 0;
+	uint16_t usage_list[MAX_KBD_USAGES];
+	uint8_t usage_listed = 0;      // number of entries in usage_list
+	bool usage_range = false;
 	memset(conf, 0, sizeof(hid_report_t));
 
 	// mask used to check of all required components have been found, so
@@ -241,6 +265,40 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 
 					hidp_extreme_debugf("INPUT(%lu)", value);
 
+					// keyboard: remember where the key data sits in the report
+					// (skip constant fields such as the boot report's reserved byte)
+					if(conf->type == REPORT_TYPE_KEYBOARD && usage_page == USAGE_PAGE_KEYBOARD &&
+					   !(value & 0x01) && (usage_range || usage_listed)) {
+						bool variable = (value & 0x02) != 0;
+						if(usage_range) {
+							add_kbd_field(conf, bit_count, report_size, report_count, variable,
+								      usage_min, usage_max, logical_minimum);
+						} else if(variable) {
+							// one field per run of consecutive usages; elements past
+							// the list use its last usage, so the last run takes them
+							uint8_t start = 0;
+							for(uint8_t j = 1; j <= usage_listed && start < report_count; j++) {
+								if(j < usage_listed && usage_list[j] == usage_list[j-1] + 1)
+									continue;
+								uint8_t count = (j < usage_listed) ? j - start : report_count - start;
+								if(start + count > report_count) count = report_count - start;
+								add_kbd_field(conf, bit_count + start * report_size, report_size, count,
+									      true, usage_list[start], usage_list[j-1], logical_minimum);
+								start = j;
+							}
+						} else {
+							// array: values index the usage list, which must be consecutive
+							bool consecutive = true;
+							for(uint8_t j = 1; j < usage_listed; j++)
+								if(usage_list[j] != usage_list[0] + j) consecutive = false;
+							if(consecutive)
+								add_kbd_field(conf, bit_count, report_size, report_count, false,
+									      usage_list[0], usage_list[usage_listed-1], logical_minimum);
+							else
+								hidp_debugf("KEYBOARD array with scattered usages ignored");
+						}
+					}
+
 					// reset for next inputs
 					bit_count += report_count * report_size;
 					usage_count = 0;
@@ -299,6 +357,7 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 							// retry with next report
 							bit_count = 0;
 							report_complete = 0;
+							conf->keyboard.num_fields = 0;
 						}
 
 					} else {
@@ -312,6 +371,9 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 					return false;
 					break;
 				}
+				// local items only apply to the next main item
+				usage_range = false;
+				usage_listed = 0;
 				break;
 
 			case 1:
@@ -319,6 +381,7 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 				switch(tag) {
 				case 0:
 					hidp_extreme_debugf("USAGE_PAGE(%lu/0x%lx)", value, value);
+					usage_page = value;
 
 					if(value == USAGE_PAGE_KEYBOARD) {
 						hidp_extreme_debugf(" -> Keyboard");
@@ -458,17 +521,23 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 						//    return false;
 					}
 
+					if(usage_listed < MAX_KBD_USAGES)
+						usage_list[usage_listed++] = value;
 					usage_count++;
 					break;
 
 				case 1:
 					hidp_extreme_debugf("USAGE_MINIMUM(%lu)", value);
 					usage_count -= (value-1);
+					usage_min = value;
+					usage_range = true;
 					break;
 
 				case 2:
 					hidp_extreme_debugf("USAGE_MAXIMUM(%lu)", value);
 					usage_count += value;
+					usage_max = value;
+					usage_range = true;
 					break;
 
 				default:
@@ -544,81 +613,120 @@ uint8_t usb_to_ascii(uint8_t code, uint8_t modifier) {
     return 0;  // Return 0 for unhandled keys
 }
 
-// 8 bytes keyboard report: [0]: modifiers, [2-7]: keys pressed
-// we convert to ps2 keyboard report and send to the core
+static void kbd_set_usage(uint8_t *modifiers, uint8_t keys[32], uint32_t usage) {
+	if (usage >= 0xE0 && usage <= 0xE7)
+		*modifiers |= (uint8_t)(1U << (usage - 0xE0));
+	else if (usage > 3 && usage <= 0xFF)
+		keys[usage / 8] |= (uint8_t)(1U << (usage % 8));
+}
+
+// Decode a keyboard report into modifier bits and a bitmap of held keys.
+// Uses the fields from the report descriptor, so both 8-byte boot reports
+// and one-bit-per-key reports (e.g. the Logi Bolt receiver, 046d:c548) work.
+// Returns false if the report should be ignored.
+static bool kbd_decode(const hid_report_t *report, const unsigned char *buffer, int nbytes,
+		       uint8_t *modifiers, uint8_t keys[32]) {
+	*modifiers = 0;
+	memset(keys, 0, 32);
+
+	if (!report->keyboard.num_fields) {
+		// no keyboard fields in the descriptor: assume boot report layout
+		if (nbytes != 8) return false;
+		*modifiers = buffer[0];
+		for (int i = 2; i < 8; i++) {
+			if (buffer[i] >= 1 && buffer[i] <= 3) return false;   // rollover/error
+			kbd_set_usage(modifiers, keys, buffer[i]);
+		}
+		return true;
+	}
+
+	for (int i = 0; i < report->keyboard.num_fields; i++) {
+		const hid_kbd_field_t *f = &report->keyboard.field[i];
+
+		if (f->size == 0 || f->size > 32 ||
+		    f->offset + (uint32_t)f->size * f->count > (uint32_t)nbytes * 8)
+			return false;
+
+		for (uint32_t element = 0; element < f->count; element++) {
+			uint32_t first = f->offset + element * f->size;
+			uint32_t value = 0;
+			for (uint32_t bit = 0; bit < f->size; bit++)
+				value |= (uint32_t)((buffer[(first + bit) / 8] >> ((first + bit) % 8)) & 1) << bit;
+
+			if (f->variable) {
+				if (value == 0 || f->usage_min > f->usage_max) continue;
+				uint32_t usage_count = (uint32_t)f->usage_max - f->usage_min + 1;
+				kbd_set_usage(modifiers, keys,
+					      f->usage_min + (element < usage_count ? element : usage_count - 1));
+			} else {
+				if (value < f->logical_min) continue;
+				uint32_t usage = f->usage_min + (value - f->logical_min);
+				if (usage == 0) continue;
+				if (usage <= 3) return false;   // rollover/error: ignore the whole report
+				kbd_set_usage(modifiers, keys, usage);
+			}
+		}
+	}
+	return true;
+}
+
+static inline bool key_held(const uint8_t keys[32], int usage) {
+	return keys[usage / 8] & (1 << (usage % 8));
+}
+
+// Keyboard report: convert to PS/2 scancodes and send them to the core.
 // F12 toggles the OSD state. In OSD, arrow keys and space/enter are used for navigation.
 void kbd_parse(const hid_report_t *report, struct hid_kbd_state_S *state,
 	       const unsigned char *buffer, int nbytes) {
 	bool send = !overlay_on();
+	uint8_t modifiers, keys[32];
 
-	// we expect boot mode packets which are exactly 8 bytes long
-	if(nbytes != 8) return;
-  
+	if (!kbd_decode(report, buffer, nbytes, &modifiers, keys)) return;
+
 	// check if modifier have changed
 	for(int i=0;i<8;i++) {            // scancodes are 0xE0 ~ 0xE7
 		uint8_t mask = 1 << i;
-		if ((buffer[0] & mask) != (state->last_report[0] & mask)) {
-			bool is_break = (buffer[0] & mask) == 0;
+		if ((modifiers & mask) != (state->modifiers & mask)) {
+			bool is_break = (modifiers & mask) == 0;
 			if (send) kbd_tx(usb_to_ps2(0xE0 + i, is_break));
 		}
 	}
-  
-	// send scancodes
-	std::set<uint8_t> now, last, all;
-	for (int i = 0; i < 6; i++) {
-		if (buffer[2+i]) {
-			now.insert(buffer[2+i]);
-			all.insert(buffer[2+i]);
-		}
-		if (state->last_report[2+i]) {
-			last.insert(state->last_report[2+i]);
-			all.insert(state->last_report[2+i]);
-		}
-	}
-	for (auto i : all) {     // transmit different bits
+
+	// send scancodes for keys that changed
+	for (int i = 4; i < 256; i++) {
+		bool now = key_held(keys, i);
+		bool last = key_held(state->keys, i);
+		if (now == last) continue;
+
 		if (i == 0x45) {     // F12 toggles the OSD, do not send to the core
-			if (!last.count(i)) overlay(!overlay_on());
+			if (now) overlay(!overlay_on());
 			continue;
 		}
-		if (!last.count(i)) {
+		if (now) {
 			// key pressed
-			ps2_scancode_t r = usb_to_ps2(i, false);
-			if (send) 
-				kbd_tx(r);
+			if (send)
+				kbd_tx(usb_to_ps2(i, false));
 			else {
 				// put into key_buf
-				bool found = false;
-				uint8_t ascii = usb_to_ascii(i, buffer[0]);
-                if (xSemaphoreTake(state_mutex, portMAX_DELAY) == pdTRUE) {
+				uint8_t ascii = usb_to_ascii(i, modifiers);
+				if (xSemaphoreTake(state_mutex, portMAX_DELAY) == pdTRUE) {
 					int j = key_buf[0] == 0 ? 0 :
 					        key_buf[1] == 0 ? 1 :
-							key_buf[2] == 0 ? 2 :
-							key_buf[3] == 0 ? 3 : -1;
-					if (j != -1) {
-						key_buf[j] = ascii;
-						found = true;
-					}
-                    xSemaphoreGive(state_mutex);
-                }
-				// if (found) {
-				// 	DEBUG("kbd_parse: key %d, buf={%d %d %d %d}\n", ascii, key_buf[0], key_buf[1], key_buf[2], key_buf[3]);
-				// }
+					        key_buf[2] == 0 ? 2 :
+					        key_buf[3] == 0 ? 3 : -1;
+					if (j != -1) key_buf[j] = ascii;
+					xSemaphoreGive(state_mutex);
+				}
 			}
-		} 
-		if (!now.count(i)) {
+		} else {
 			// key released
-			ps2_scancode_t r = usb_to_ps2(i, true);
-			if (send) kbd_tx(r);
+			if (send) kbd_tx(usb_to_ps2(i, true));
 		}
 	}
-	// save current report
-	memcpy(state->last_report, buffer, 8);
 
-	// if (changed) {
-	// 	dprint("kbd_parse: buf=%02x %02x %02x %02x %02x %02x, last=%02x %02x %02x %02x %02x %02x\n",
-	// 		buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5],
-	// 		state->last_report[0], state->last_report[1], state->last_report[2], state->last_report[3], state->last_report[4], state->last_report[5]);
-	// }
+	// save current state
+	state->modifiers = modifiers;
+	memcpy(state->keys, keys, sizeof(state->keys));
 }
 
 // collect bits from byte stream and assemble them into a signed word

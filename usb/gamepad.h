@@ -11,4 +11,5 @@ void usb_gamepad_init(void);
 // state will be written here by the USB gamepad task
 extern volatile uint16_t hid1_state;               // SNES-format gamepad state
 extern volatile uint16_t hid2_state;               // SNES-format gamepad state
+extern volatile uint16_t kbd_joy_state;            // SNES-format state from keyboards, ORed into hid1
 extern SemaphoreHandle_t state_mutex;              // for all global state access

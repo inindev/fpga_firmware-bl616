@@ -80,6 +80,9 @@ extern "C" char *strcasestr(const char *haystack, const char *needle);
 bool get_core_status(void);
 // read joypad states, joy1/2 comes from FPGA, hid1/2 comes from USB
 void get_joypad_states(uint16_t *joy1, uint16_t *joy2, uint16_t *hid1, uint16_t *hid2);
+// menu buttons: returns the buttons in `held` that should act now (once per press;
+// directions repeat while held)
+uint16_t joy_press(uint16_t held);
 extern int joy_choice(int start_line, int len, int *active, int overlay_key_code);
 extern void send_blank_packet(void);
 
@@ -131,6 +134,7 @@ extern volatile uint16_t joy1_state;
 extern volatile uint16_t joy2_state;
 extern volatile uint16_t hid1_state;
 extern volatile uint16_t hid2_state;
+extern volatile uint16_t kbd_joy_state;
 extern volatile int16_t core_id;
 extern volatile uint8_t key_buf[4];     // ascii keys when overlay is on, non-zero if key is pressed
                                         // read should take all bytes and clear buffer

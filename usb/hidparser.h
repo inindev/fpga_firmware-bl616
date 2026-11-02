@@ -10,6 +10,19 @@
 #define REPORT_TYPE_JOYSTICK 3
 
 #define MAX_AXES 4
+#define MAX_KBD_FIELDS 16
+#define MAX_KBD_USAGES 32     // USAGE items remembered per main item
+
+// a keyboard input field (usage page 7) from the report descriptor
+typedef struct {
+	uint16_t offset;      // bit offset inside report (without report id)
+	uint16_t usage_min;   // usage of the first element (variable fields)
+	uint16_t usage_max;
+	uint16_t logical_min; // value of usage_min (array fields)
+	uint8_t size;         // size of one element in bits
+	uint8_t count;        // number of elements
+	uint8_t variable: 1;  // 1: one bit per usage, 0: array of usage codes
+} hid_kbd_field_t;
 
 // currently only joysticks are supported
 typedef struct {
@@ -48,6 +61,12 @@ typedef struct {
 			} hat;                   // 1 hat (joystick only)
 		} joystick_mouse;
 	};
+
+	// keyboard layout, so boot style and one-bit-per-key reports both decode
+	struct {
+		uint8_t num_fields;
+		hid_kbd_field_t field[MAX_KBD_FIELDS];
+	} keyboard;
 } hid_report_t;
 
 // return true if the report descriptor is a joystick
@@ -57,8 +76,10 @@ bool parse_report_descriptor(const uint8_t *rep, uint16_t rep_size, hid_report_t
 
 // HID report processing 
 
+// keys currently held: modifier bits (usages 0xE0-0xE7) and a bitmap of usages
 struct hid_kbd_state_S {
-  unsigned char last_report[8];	
+  uint8_t modifiers;
+  uint8_t keys[32];
 };
 
 struct hid_mouse_state_S {
@@ -71,7 +92,8 @@ struct hid_joystick_state_S {
   unsigned char last_state_btn_extra;
 };
 
-typedef union {
+// a struct, not a union: js_index is used for keyboards too
+typedef struct {
   struct hid_kbd_state_S kbd;
   struct hid_mouse_state_S mouse;
   struct hid_joystick_state_S joystick;  

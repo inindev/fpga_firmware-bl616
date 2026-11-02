@@ -18,7 +18,7 @@
 // Uncomment this to enable on-screen debug messages
 // #define DEBUG_ON
 
-#define MAX_REPORT_SIZE   8
+#define MAX_REPORT_SIZE  64     // full-speed interrupt endpoint maximum
 #define XBOX_REPORT_SIZE 20
 
 #define STATE_NONE      0 
@@ -132,6 +132,8 @@ void usbh_xbox_callback(void *arg, int nbytes) {
 
 uint8_t joy_driver_map = 0;
 
+static void kbd_joy_update(int index, uint16_t joy);
+
 static void usbh_update(struct usb_config *usb) {
     // check status for tasks
     for (int i = 0; i < CONFIG_USBHOST_MAX_HID_CLASS; i++) {
@@ -195,6 +197,9 @@ static void usbh_update(struct usb_config *usb) {
                 DEBUG("HID %d task deleted\n", i);
             }
             usb->hid_info[i].state = STATE_NONE;
+
+            if(usb->hid_info[i].report.type == REPORT_TYPE_KEYBOARD)
+                kbd_joy_update(i, 0);
 
             if(usb->hid_info[i].report.type == REPORT_TYPE_JOYSTICK) {
                 DEBUG("Joystick %d gone", usb->hid_info[i].hid_state.joystick.js_index);
@@ -288,11 +293,11 @@ static void xbox_parse(struct xbox_info_S *xbox) {
 // SNES: R L X A RT LT DN UP ST SE Y B
 // Up: W. Down: S. Left: A. Right: D. Select: Tab. Start: `. 
 // A: Space. B: Q. X: Left Shift. Y: Backspace. L: /. R: E.
-static uint16_t kbd_to_joy(uint8_t *buffer, int nbytes) {
-    // ignore modifiers in buffer[0]
+static uint16_t kbd_to_joy(const struct hid_kbd_state_S *kbd) {
+    // ignore modifiers
     uint16_t r = 0;
-    for (int i = 2; i < nbytes; i++) {
-        uint8_t k = buffer[i];
+    for (int k = 4; k < 256; k++) {
+        if (!(kbd->keys[k / 8] & (1 << (k % 8)))) continue;
         if (k == 0x50) {                        // left arrow
             r |= (1 << 6);
         } else if (k == 0x4f) {                 // right arrow
@@ -312,6 +317,20 @@ static uint16_t kbd_to_joy(uint8_t *buffer, int nbytes) {
         }
     }
     return r;
+}
+
+// Gamepad bits from each keyboard, kept apart from hid1_state so that
+// gamepads and other HID interfaces can't overwrite them
+static uint16_t kbd_joy[CONFIG_USBHOST_MAX_HID_CLASS];
+
+static void kbd_joy_update(int index, uint16_t joy) {
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    kbd_joy[index] = joy;
+    uint16_t all = 0;
+    for (int i = 0; i < CONFIG_USBHOST_MAX_HID_CLASS; i++)
+        all |= kbd_joy[i];
+    kbd_joy_state = all;
+    xSemaphoreGive(state_mutex);
 }
 
 // each HID client gets itws own thread which submits urbs
@@ -346,11 +365,10 @@ static void usbh_hid_client_thread(void *arg) {
                                 (hid_state & 0x10) << 5 | (hid_state & 0x20) << 3| (hid_state & 0x40) >> 6 | (hid_state & 0x80) >> 6 |
                                 (hid_extra & 0x01) << 10 | (hid_extra & 0x02) << 10 | (hid_extra & 0x10) >> 2 | (hid_extra & 0x20) >> 2;
                         xSemaphoreGive(state_mutex);
-                    } else if (hid->report.type == REPORT_TYPE_KEYBOARD) {
-                        // allow keyboard to double as a gamepad
-                        hid1_state = kbd_to_joy(hid->buffer, hid->nbytes);
                     }
                 }
+                if (hid->report.type == REPORT_TYPE_KEYBOARD)
+                    kbd_joy_update(hid->index, kbd_to_joy(&hid->hid_state.kbd));
             }
             
             hid->nbytes = 0;
@@ -476,16 +494,19 @@ static void usbh_hid_thread(void *argument) {
                 DEBUG("HID device %d is detected\n", i);
                 usb->hid_info[i].state = STATE_RUNNING;
 
+                memset(&usb->hid_info[i].hid_state, 0, sizeof(usb->hid_info[i].hid_state));
+
                 // allocate a joystick index
                 usb->hid_info[i].hid_state.joystick.js_index = hid_allocate_joystick();
                 DEBUG("  -> joystick %d", usb->hid_info[i].hid_state.joystick.js_index);
 
                 // setup urb
+                int urb_len = usb->hid_info[i].report.report_size + (usb->hid_info[i].report.report_id_present ? 1:0);
+                if (urb_len > MAX_REPORT_SIZE) urb_len = MAX_REPORT_SIZE;
                 usbh_int_urb_fill(&usb->hid_info[i].hid_class->intin_urb,
                         usb->hid_info[i].hid_class->hport,
                         usb->hid_info[i].hid_class->intin, usb->hid_info[i].buffer,
-                        usb->hid_info[i].report.report_size + (usb->hid_info[i].report.report_id_present ? 1:0),
-                        0, usbh_hid_callback, &usb->hid_info[i]);     
+                        urb_len, 0, usbh_hid_callback, &usb->hid_info[i]);
 
                 xTaskCreate(usbh_hid_client_thread, (char *)"hid_client_task", 2048,
                         &usb->hid_info[i], configMAX_PRIORITIES-3, &usb->hid_info[i].task_handle );
