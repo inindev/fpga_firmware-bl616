@@ -496,9 +496,12 @@ static void usbh_hid_thread(void *argument) {
 
                 memset(&usb->hid_info[i].hid_state, 0, sizeof(usb->hid_info[i].hid_state));
 
-                // allocate a joystick index
-                usb->hid_info[i].hid_state.joystick.js_index = hid_allocate_joystick();
-                DEBUG("  -> joystick %d", usb->hid_info[i].hid_state.joystick.js_index);
+                // allocate a joystick index; keyboards and mice don't take one,
+                // or they would push gamepads out of the first two slots
+                if (usb->hid_info[i].report.type == REPORT_TYPE_JOYSTICK) {
+                    usb->hid_info[i].hid_state.joystick.js_index = hid_allocate_joystick();
+                    DEBUG("  -> joystick %d", usb->hid_info[i].hid_state.joystick.js_index);
+                }
 
                 // setup urb
                 int urb_len = usb->hid_info[i].report.report_size + (usb->hid_info[i].report.report_id_present ? 1:0);

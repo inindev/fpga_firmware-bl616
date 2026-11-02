@@ -92,7 +92,7 @@ struct hid_joystick_state_S {
   unsigned char last_state_btn_extra;
 };
 
-// a struct, not a union: js_index is used for keyboards too
+// a struct, not a union: keyboard reports must not overwrite js_index
 typedef struct {
   struct hid_kbd_state_S kbd;
   struct hid_mouse_state_S mouse;
