@@ -51,8 +51,8 @@ void menu_input_loop() {
         // DEBUG("Joy1: %04x, Joy2: %04x\n", joy1, joy2);
 
         if (joy1 == OSD_KEY_CODE || joy2 == OSD_KEY_CODE) {
+            wait_joy_release(OSD_KEY_CODE);     // the core gets control only after release
             overlay(0);    // turn off OSD
-            delay(300);
         }
 
         // one action per press: A/B win over up/down, up+down cancel

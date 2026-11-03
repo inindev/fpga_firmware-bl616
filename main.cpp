@@ -137,6 +137,7 @@ static int menu_loadrom(const char *dir) {
         overlay_status("Core: %s", fname.c_str());
         fpga_program(fname.c_str());
         _overlay_on = 1;                // turn on overlay after core is loaded
+        core_running = false;           // no rom on the new core yet
         return 0;       // return to main menu
     } 
 
@@ -197,41 +198,70 @@ static void menu_options(void) {
     // to be implemented
 }
 
-// keep sending HID state to core until OSD is turned on
-static void send_hid_to_core(void) {
+#define OSD_HOLD_MS 400             // OSD key must be held this long to open the OSD in game
+
+static void send_hid(uint16_t hid1, uint16_t hid2) {
+    fpga_tx_header(0x09, 5);
+    fpga_tx_byte(hid1 >> 8);
+    fpga_tx_byte(hid1 & 0xff);
+    fpga_tx_byte(hid2 >> 8);
+    fpga_tx_byte(hid2 & 0xff);
+}
+
+// keep sending HID state to core until the OSD key is held for OSD_HOLD_MS,
+// or the keyboard turns the OSD on
+static void send_hid_to_core(uint16_t osd_key) {
     uint16_t hid1_old = 0, hid2_old = 0;
     bool first = true;
+    bool held = false;
+    uint64_t held_since = 0;
     dprint("Start sending HID to core...");
     while (1) {
         uint16_t joy1=0, joy2=0, hid1=0, hid2=0;    
         get_joypad_states(&joy1, &joy2, &hid1, &hid2);
         if (first || hid1 != hid1_old || hid2 != hid2_old) {    // send HID if changed
-            fpga_tx_header(0x09, 5);
-            fpga_tx_byte(hid1 >> 8);
-            fpga_tx_byte(hid1 & 0xff);
-            fpga_tx_byte(hid2 >> 8);
-            fpga_tx_byte(hid2 & 0xff);
+            send_hid(hid1, hid2);
             hid1_old = hid1;
             hid2_old = hid2;
             first = false;
         }
-        if (joy1 == OSD_KEY_CODE || joy2 == OSD_KEY_CODE || hid1 == OSD_KEY_CODE || hid2 == OSD_KEY_CODE) {
-            break;
+        if (joy1 == osd_key || joy2 == osd_key || hid1 == osd_key || hid2 == osd_key) {
+            uint64_t now = bflb_mtimer_get_time_ms();
+            if (!held) {
+                held = true;
+                held_since = now;
+            } else if (now - held_since >= OSD_HOLD_MS) {
+                break;
+            }
+        } else {
+            held = false;
         }
-        if (overlay_on())      // turned off by keyboard
+        if (overlay_on())      // turned on by keyboard
             break;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+    send_hid(0, 0);            // the core should not see buttons held while the OSD is up
     dprint("Stopped sending HID to core.");
 }
 
 // // (R L X A RT LT DN UP START SELECT Y B)
-// Return: 1 button B pressed, 4: button A pressed, 2: next page, 3: previous page
+// Return: 1 button B pressed, 4: button A pressed, 2: next page, 3: previous page,
+//         5: OSD was turned back on (caller should redraw)
 // active is the entry chosen
 int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
     if (*active < 0 || *active >= len)
         *active = 0;
-    uint16_t joy1=0, joy2=0, hid1=0, hid2=0;    
+
+    if (!overlay_on()) {           // keep sending HID state to core when OSD is off
+        send_hid_to_core(overlay_key_code);
+        if (!overlay_on())         // not already turned on by keyboard
+            overlay(1);
+        dprint("OSD: ON");
+        wait_joy_release(overlay_key_code);     // the held key should not act in the menu
+        return 5;
+    }
+
+    uint16_t joy1=0, joy2=0, hid1=0, hid2=0;
     int last = *active;
 
     get_joypad_states(&joy1, &joy2, &hid1, &hid2);
@@ -240,13 +270,10 @@ int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
     uint16_t press = joy_press(joy1 | joy2);
 
     if ((joy1 == overlay_key_code) || (joy2 == overlay_key_code)) {
-        overlay_status("OSD: %s", overlay_on() ? "ON" : "OFF");
-        overlay(!overlay_on());    // toggle OSD
-        delay(300);
-    }
-
-    if (!overlay_on()) {           // keep sending HID state to core when OSD is off
-        send_hid_to_core();
+        // no hold needed to close, but the core gets control only after release
+        wait_joy_release(overlay_key_code);
+        overlay(0);
+        dprint("OSD: OFF");
         return 0;
     }
 
@@ -430,13 +457,14 @@ static void main_task(void *pvParameters)
         overlay_status("No monitor.bin found for board.");
     }
 
-    int line_start;
     int menu_cnt = main_menu_config.size();
-    line_start = 13 - (menu_cnt+2+2) / 2;       // 2 lines for version, 2 lines for "TangCore"
 
     while (1) {
         bool redraw = true;
         int choice = 0;
+        int resume = core_running ? 1 : 0;      // "Resume game" row above the menu items
+        int rows = resume + menu_cnt;
+        int line_start = 13 - (rows+2+2) / 2;   // 2 lines for version, 2 lines for "TangCore"
         for (;;) {
             uint32_t now = bflb_mtimer_get_time_ms();
             if (active_core == -1) {
@@ -460,6 +488,10 @@ static void main_task(void *pvParameters)
                 line++;
 
                 // display all menu items
+                if (resume) {
+                    overlay_cursor(2, line++);
+                    overlay_printf("Resume game");
+                }
                 for (int i = 0; i < menu_cnt; i++) {
                     overlay_cursor(2, line++);
                     if (main_menu_config[i] > 0) {
@@ -492,40 +524,43 @@ static void main_task(void *pvParameters)
                 // overlay_status("GPIO0-3 status: %08x %08x %08x %08x", *reg_gpio0, *reg_gpio1, *reg_gpio2, *reg_gpio3);
             }
 
-            bool before_overlay = overlay_on();
-            int r = joy_choice(line_start+2, menu_cnt, &choice, OSD_KEY_CODE);
+            int r = joy_choice(line_start+2, rows, &choice, OSD_KEY_CODE);
             if (r == 1) break;
 
-            if (!before_overlay && overlay_on() && active_core > 0) {
-                // overlay is turned back on, now display the pop-up menu
-                DEBUG("Displaying pop-up menu\n");
-                menu_clear();
-                // Menu *menu = core->create_menu(core->rom_dir)
-                core_info *core = find_core_by_id(active_core);
-                if (core != NULL) {
-                    DEBUG("Found core_info. Displaying menu\n");
-                    Menu *menu;
-                    if (active_core == 6) {
-                        menu = create_pcxt_menu(std::string(drv).append(core->rom_dir).c_str());
-                    } else {
-                        menu = create_default_menu(std::string(drv).append(core->rom_dir).c_str());
+            if (r == 5) {
+                // overlay is turned back on: show the main menu, cursor on "Resume game"
+                choice = 0;
+                redraw = true;
+                if (active_core == 6) {
+                    // PC/XT has its own pop-up menu for floppy images
+                    DEBUG("Displaying pop-up menu\n");
+                    menu_clear();
+                    core_info *core = find_core_by_id(active_core);
+                    if (core != NULL) {
+                        Menu *menu = create_pcxt_menu(std::string(drv).append(core->rom_dir).c_str());
+                        std::unique_ptr<Menu> menu_ptr(menu);
+                        push_menu(std::move(menu_ptr));
+                        menu->do_redraw();
+                        menu_input_loop();
                     }
-                    std::unique_ptr<Menu> menu_ptr(menu);
-                    push_menu(std::move(menu_ptr));
-                    menu->do_redraw();
-                    menu_input_loop();
-                    redraw = true;
                 }
             }
 
             delay(20);
         }
 
-        if (main_menu_config[choice] > 0) {
+        if (resume && choice == 0) {
+            wait_joy_release(0x1);      // the game should not see the B press
+            overlay(0);
+            continue;
+        }
+
+        int item = main_menu_config[choice - resume];
+        if (item > 0) {
             // Load rom or core from USB drive
             struct core_info *core = NULL;
             for (int i = 0; core_info_list[i].id != 0; i++) {
-                if (core_info_list[i].id == main_menu_config[choice]) {
+                if (core_info_list[i].id == item) {
                     core = &core_info_list[i];
                     break;
                 }
@@ -534,11 +569,11 @@ static void main_task(void *pvParameters)
                 std::string dir = std::string(drv).append(core->rom_dir);
                 menu_loadrom(dir.c_str());
             }
-        } else if (main_menu_config[choice] == -1) {
+        } else if (item == -1) {
             // load cores manually
             std::string dir = std::string(drv).append("cores");
             menu_loadrom(dir.c_str());
-        } else if (main_menu_config[choice] == -2) {
+        } else if (item == -2) {
             // Options
             menu_options();
         } 

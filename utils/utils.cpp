@@ -119,6 +119,17 @@ uint16_t joy_press(uint16_t held) {
     return act;
 }
 
+// wait until none of the buttons in `mask` is held on any controller
+void wait_joy_release(uint16_t mask) {
+    for (;;) {
+        uint16_t joy1=0, joy2=0, hid1=0, hid2=0;
+        get_joypad_states(&joy1, &joy2, &hid1, &hid2);
+        if (((joy1 | joy2 | hid1 | hid2) & mask) == 0)
+            break;
+        delay(10);
+    }
+}
+
 // query over UART to return if the correct core is loaded
 // return >= 0 if request is successful, -1 if timeout (200ms)
 int16_t get_core_id(void) {

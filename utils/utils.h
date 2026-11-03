@@ -83,6 +83,8 @@ void get_joypad_states(uint16_t *joy1, uint16_t *joy2, uint16_t *hid1, uint16_t 
 // menu buttons: returns the buttons in `held` that should act now (once per press;
 // directions repeat while held)
 uint16_t joy_press(uint16_t held);
+// wait until none of the buttons in `mask` is held on any controller
+void wait_joy_release(uint16_t mask);
 extern int joy_choice(int start_line, int len, int *active, int overlay_key_code);
 extern void send_blank_packet(void);
 

@@ -85,11 +85,11 @@ bool FileChooser::choose_file(string &res) {
                         res = curdir + "/" + files[active].name;
                         return true;
                     }
-                } else if (r == 2 && page < pages-1) {
-                    page++;
+                } else if (r == 2 && pages > 1) {      // next page, wraps to the first
+                    page = (page + 1) % pages;
                     break;
-                } else if (r == 3 && page > 0) {
-                    page--;
+                } else if (r == 3 && pages > 1) {      // previous page, wraps to the last
+                    page = (page + pages - 1) % pages;
                     break;
                 }
                 delay(10);
