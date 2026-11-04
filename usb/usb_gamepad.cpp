@@ -192,8 +192,10 @@ static void usbh_update(struct usb_config *usb) {
         else if(!usb->hid_info[i].hid_class && usb->hid_info[i].state != STATE_NONE) {
             INFO("HID %d disconnected\n", i);
             if (usb->hid_info[i].task_handle) {
+                taskENTER_CRITICAL();       // usb_gamepad_stop() must not see a deleted task
                 vTaskDelete( usb->hid_info[i].task_handle );
                 usb->hid_info[i].task_handle = NULL;
+                taskEXIT_CRITICAL();
                 DEBUG("HID %d task deleted\n", i);
             }
             usb->hid_info[i].state = STATE_NONE;
@@ -227,9 +229,11 @@ static void usbh_update(struct usb_config *usb) {
         else if(!usb->xbox_info[i].hid_class && usb->xbox_info[i].state != STATE_NONE) {
             INFO("Xinput %d disconnected\n", i);
             if (usb->xbox_info[i].task_handle) {
+                taskENTER_CRITICAL();       // usb_gamepad_stop() must not see a deleted task
                 vTaskDelete( usb->xbox_info[i].task_handle );
-                DEBUG("XBOX %d task deleted\n", i);
                 usb->xbox_info[i].task_handle = NULL;
+                taskEXIT_CRITICAL();
+                DEBUG("XBOX %d task deleted\n", i);
             }
             usb->xbox_info[i].state = STATE_NONE;
 
@@ -567,4 +571,17 @@ void usb_gamepad_init(void) {
     }
 
     xTaskCreate(usbh_hid_thread, (char *)"usbh_hid_task", 4096, &usb_config, configMAX_PRIORITIES-3, &usb_handle);
+}
+
+void usb_gamepad_stop(void) {
+    taskENTER_CRITICAL();
+    if (usb_handle)
+        vTaskSuspend(usb_handle);
+    for (int i = 0; i < CONFIG_USBHOST_MAX_HID_CLASS; i++)
+        if (usb_config.hid_info[i].task_handle)
+            vTaskSuspend(usb_config.hid_info[i].task_handle);
+    for (int i = 0; i < CONFIG_USBHOST_MAX_XBOX_CLASS; i++)
+        if (usb_config.xbox_info[i].task_handle)
+            vTaskSuspend(usb_config.xbox_info[i].task_handle);
+    taskEXIT_CRITICAL();
 }

@@ -30,6 +30,7 @@ sdk_add_include_directories(
 # Add source files
 file(GLOB_RECURSE MY_SOURCES
     "usb/*.cpp"
+    "usb/*.c"
     "fpga/*.cpp"
     "ui/*.cpp"
     "core/*.cpp"

@@ -410,6 +410,100 @@ static void uart1_rx_task(void *pvParameters)
     }
 }
 
+// Device Mode at power-up: without a USB device on the port (the board is plugged into a
+// PC, which never pulls up D+/D-), restart as the USB debugger, so that the PC can program
+// the FPGA. DEVICE_MODE: boards without an SD card, checked first. DEVICE_MODE_SD: boards
+// with an SD card, checked only when no SD card mounts.
+#if defined(TANG_NANO20K)
+#define DEVICE_MODE
+#elif defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
+#define DEVICE_MODE_SD
+#endif
+
+#if defined(DEVICE_MODE) || defined(DEVICE_MODE_SD)
+#define DEVICE_MODE_ANY
+#define USB_CONNECT_WAIT_MS 4000    // max wait for a USB device to connect (a cold hub took 2.5 s)
+#define USB_MOUNT_WAIT_MS   5000    // max wait for the USB drive to mount
+static bool no_storage;             // no USB drive mounted: the menu says so
+#ifdef DEVICE_MODE_SD
+static uint64_t usb_host_start_ms;  // the USB connect window starts with the USB host
+#endif
+
+// ask the core for its ID without waiting: core_id becomes >= 0 when it answers
+static void core_id_request(void) {
+    if (xSemaphoreTake(state_mutex, portMAX_DELAY) == pdTRUE) {
+        core_id = -1;
+        xSemaphoreGive(state_mutex);
+    }
+    fpga_tx_header(0x01, 1);
+}
+
+static bool core_answered(void) {
+    bool r = false;
+    if (xSemaphoreTake(state_mutex, portMAX_DELAY) == pdTRUE) {
+        r = core_id >= 0;
+        xSemaphoreGive(state_mutex);
+    }
+    return r;
+}
+
+// a message in the empty menu frame: a title on `row`, then lines from two rows below it
+static void frame_message(int row, const char *title, std::initializer_list<const char *> lines) {
+    overlay(1);
+    overlay_clear();
+    overlay_frame();
+    overlay_hints("");
+    overlay_center(row, "%s", title);
+    int y = row + 2;
+    for (const char *line : lines)
+        overlay_center(y++, "%s", line);
+}
+
+// Wait for a USB device until `start` + USB_CONNECT_WAIT_MS. Without one, show the Device
+// Mode text and restart as the USB debugger; the monitor core keeps showing the text.
+static void device_mode_check(uint64_t start, std::initializer_list<const char *> text) {
+    uint64_t asked = 0;
+    bool shown = false, connected = false;
+    for (;;) {
+        uint64_t now = bflb_mtimer_get_time_ms();
+        if (usb_port_connected()) {
+            connected = true;
+            break;
+        }
+        if (now - start >= USB_CONNECT_WAIT_MS)
+            break;
+        // the core configures itself from flash at power-on: show the message once it answers
+        if (!shown) {
+            if (core_answered()) {
+                frame_message(OVERLAY_TOP + 7, "Detecting USB...", {});
+                shown = true;
+            } else if (now - asked >= 100) {
+                send_blank_packet();
+                core_id_request();
+                asked = now;
+            }
+        }
+        delay(10);
+    }
+    if (connected) {
+        if (shown)
+            overlay_clear();
+        return;
+    }
+    overlay_status("No USB device: device mode");
+
+    start = bflb_mtimer_get_time_ms();
+    while (!shown && !core_answered() && bflb_mtimer_get_time_ms() - start < 3000) {
+        send_blank_packet();
+        core_id_request();
+        delay(100);
+    }
+    frame_message(OVERLAY_TOP + 6, "Device Mode", text);
+    delay(100);
+    restart_as_usb_debugger();
+}
+#endif
+
 // Display main menu and call other menu functions
 static void main_task(void *pvParameters)
 {
@@ -418,6 +512,10 @@ static void main_task(void *pvParameters)
     // volatile uint32_t *reg_gpio1 = (volatile uint32_t *)0x200008c8;
     // volatile uint32_t *reg_gpio2 = (volatile uint32_t *)0x200008cc;
     // volatile uint32_t *reg_gpio3 = (volatile uint32_t *)0x200008d0;
+
+#ifdef DEVICE_MODE
+    device_mode_check(bflb_mtimer_get_time_ms(), {"Connect USB storage and", "power cycle for Game Mode"});
+#endif
 
     // wait for drive to be ready
     uint64_t start = bflb_mtimer_get_time_ms();
@@ -432,11 +530,21 @@ static void main_task(void *pvParameters)
     if (res == FR_OK) {
         overlay_status("SD card mounted in %d ms", bflb_mtimer_get_time_ms() - start);
     } else  {
+#ifdef DEVICE_MODE_SD
+        device_mode_check(usb_host_start_ms, {"Insert SD card or connect", "USB storage and power",
+                                              "cycle for Game Mode"});
+#endif
         overlay_status("SD not found. Mounting USB...");
         drv = "usb:";
         start = bflb_mtimer_get_time_ms();
+#ifdef DEVICE_MODE_ANY
+        while ((res = f_mount(&fs, "usb:", 1)) != FR_OK && bflb_mtimer_get_time_ms() - start < USB_MOUNT_WAIT_MS)
+            delay(100);
+        no_storage = res != FR_OK;
+#else
         while ((res = f_mount(&fs, "usb:", 1)) != FR_OK && bflb_mtimer_get_time_ms() - start < 2000)
             delay(100);
+#endif
         if (res != FR_OK) {
             overlay_status("Failed to mount USB drive");
         } else {
@@ -506,7 +614,11 @@ static void main_task(void *pvParameters)
 
                 // the header (rows 0-4) is the core's logo, drawn by the FPGA
                 overlay_frame();
+#ifdef DEVICE_MODE_ANY
+                overlay_hints(no_storage ? "No USB storage found" : GLYPH_B " Select");
+#else
                 overlay_hints(GLYPH_B " Select");
+#endif
                 for (int i = 0; i < rows; i++) {
                     overlay_cursor(col, line_start + i);
                     overlay_printf("%s", items[i]);
@@ -604,6 +716,8 @@ static void print_system_info(void) {
 
 // USB drive: CherryUSB calls usbh_msc_run() when one is connected. SCSI init
 // blocks, so it runs in a short-lived task, then the drive is registered as "usb:".
+static TaskHandle_t usbh_msc_task;
+
 static void usbh_msc_thread(void *arg)
 {
     struct usbh_msc *msc_class = (struct usbh_msc *)arg;
@@ -613,12 +727,28 @@ static void usbh_msc_thread(void *arg)
         fatfs_usbh_driver_register(msc_class);
         msc = msc_class;
     }
+    taskENTER_CRITICAL();
+    usbh_msc_task = NULL;
+    taskEXIT_CRITICAL();
     vTaskDelete(NULL);
 }
 
 extern "C" void usbh_msc_run(struct usbh_msc *msc_class)
 {
-    xTaskCreate(usbh_msc_thread, "usbh_msc", 1024, msc_class, CONFIG_USBHOST_PSC_PRIO - 1, NULL);
+    xTaskCreate(usbh_msc_thread, "usbh_msc", 1024, msc_class, CONFIG_USBHOST_PSC_PRIO - 1, &usbh_msc_task);
+}
+
+// Suspend the tasks that can use the USB host: the menu (USB drive reads) and USB drive
+// setup. The calling task keeps running.
+void usb_host_tasks_stop(void)
+{
+    taskENTER_CRITICAL();
+    if (main_task_handle && main_task_handle != xTaskGetCurrentTaskHandle())
+        vTaskSuspend(main_task_handle);
+    if (usbh_msc_task)
+        vTaskSuspend(usbh_msc_task);
+    taskEXIT_CRITICAL();
+    usb_gamepad_stop();
 }
 
 extern "C" void usbh_msc_stop(struct usbh_msc *msc_class)
@@ -653,6 +783,9 @@ int main(void)
     // USB drives are registered in usbh_msc_run() when they connect
     struct bflb_device_s *usb_dev = bflb_device_get_by_name(BFLB_NAME_USB_V2);
     usbh_initialize(0, usb_dev->reg_base, NULL);
+#ifdef DEVICE_MODE_SD
+    usb_host_start_ms = bflb_mtimer_get_time_ms();
+#endif
     usb_gamepad_init();
 
     overlay_status("Creating tasks...");

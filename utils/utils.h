@@ -80,6 +80,12 @@ extern "C" char *strcasestr(const char *haystack, const char *needle);
 bool get_core_status(void);
 // read joypad states, joy1/2 comes from FPGA, hid1/2 comes from USB
 void get_joypad_states(uint16_t *joy1, uint16_t *joy2, uint16_t *hid1, uint16_t *hid2);
+// true when a device has connected to the USB port (root port of the USB host)
+bool usb_port_connected(void);
+// restart the BL616 so that Sipeed's Partner firmware comes up as the USB debugger
+void restart_as_usb_debugger(void);
+// suspend every task that can use the USB host, except the calling one (main.cpp)
+void usb_host_tasks_stop(void);
 // menu buttons: returns the buttons in `held` that should act now (once per press;
 // directions repeat while held)
 uint16_t joy_press(uint16_t held);
