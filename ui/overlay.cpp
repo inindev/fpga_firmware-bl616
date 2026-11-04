@@ -63,6 +63,21 @@ static void redraw_row(int row) {
     send_text(line);
 }
 
+// send the whole screen again from the copy, row by row with its final content: restores it
+// if the core's text memory was reset, and never shows a blank screen as a clear would
+void overlay_refresh() {
+    int x = cur_x, y = cur_y;
+    char line[33];
+    for (int row = 0; row < 28; row++) {
+        for (int col = 0; col < 32; col++)
+            line[col] = screen[row][col] ? screen[row][col] : ' ';
+        line[32] = '\0';
+        overlay_cursor(0, row);
+        send_text(line);
+    }
+    overlay_cursor(x, y);
+}
+
 // highlight bar on one row (-1: none), over columns 1-30 inside the frame
 void overlay_highlight(int row) {
     if (row == hl_row)

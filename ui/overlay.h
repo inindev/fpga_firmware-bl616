@@ -51,6 +51,7 @@ extern void overlay_status(const char *fmt, ...);
 extern void overlay_frame(const char *left = "", const char *right = "");
 extern void overlay_hints(const char *hints);
 extern void overlay_highlight(int row);     // highlight bar on columns 1-30 (-1: none)
+extern void overlay_refresh();              // send the whole screen again, without clearing
 extern std::string overlay_fit(const std::string &s, int width);
 extern void overlay_message(const char *msg, int center);
 extern void overlay_wait_button(int timeout_ms = 0);   // wait for A or B (0: no limit)
