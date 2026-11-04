@@ -1,3 +1,5 @@
+// Modified for tangcore (2026-11-04), from fpga_game_consoles: name unsupported enhancement
+// chips (SA-1, SPC7110, S-DD1, Cx4, SuperFX) when loading a SNES ROM. See git history.
 #define _GNU_SOURCE
 #include <string.h>      // for strcasestr
 
@@ -54,6 +56,33 @@ int parse_snes_header(FIL *fp, int pos, int file_size, int typ, unsigned char *h
     return 1;
 }
 
+// Name of the enhancement chip a cartridge header asks for, if snestang doesn't have it;
+// NULL otherwise. Signatures (map mode $15, chip type $16) are the ones smc_parser.v uses.
+// SuperFX (GSU) is listed because no tangcore build includes it; take it off the list if
+// a build enables CHIP_GSU. The checksum or the title must look valid, so random data
+// doesn't give a chip name.
+static const char *unsupported_chip(const unsigned char *hdr) {
+    int map = hdr[21], type = hdr[22];
+    int checksum_ok = ((hdr[28] << 8) + hdr[29]) + ((hdr[30] << 8) + hdr[31]) == 0xffff;
+    int title_ok = 1;
+    for (int i = 0; i < 21; i++)
+        if (hdr[i] < 32 || hdr[i] > 127)
+            title_ok = 0;
+    if (!checksum_ok && !title_ok)
+        return NULL;
+    if (map == 0x23 && (type == 0x32 || type == 0x34 || type == 0x35))
+        return "SA-1";
+    if (map == 0x3a && (type == 0xf5 || type == 0xf9))
+        return "SPC7110";
+    if (map == 0x32 && (type == 0x43 || type == 0x45))
+        return "S-DD1";
+    if (map == 0x20 && type == 0xf3)
+        return "Cx4";
+    if (map == 0x20 && (type == 0x13 || type == 0x14 || type == 0x15 || type == 0x1a))
+        return "SuperFX";
+    return NULL;
+}
+
 // TODO: implement bsram backup
 // return 0 if successful
 int loadsnes(const char *fname) {
@@ -81,7 +110,20 @@ int loadsnes(const char *fname) {
     int off = size & 0x3ff;		// rom header (0 or 512)
     int header_pos;
     overlay_status("snes rom header offset: %d\n", off);
-    
+
+    // cartridges with an enhancement chip the core doesn't have: say so, instead of
+    // "Not a SNES ROM file" (SA-1) or a hang after loading (Cx4)
+    for (int i = 0; i < 2; i++) {
+        const char *chip;
+        if (f_lseek(&fcore, (i ? 0xffc0 : 0x7fc0) + off) || f_read(&fcore, fbuf, 64, &br) || br != 64)
+            continue;
+        if ((chip = unsupported_chip(fbuf)) != NULL) {
+            overlay_status("%s game: not supported", chip);
+            delay(200);
+            goto loadsnes_close_file;
+        }
+    }
+
     header_pos = 0x7fc0 + off;
     if (parse_snes_header(&fcore, header_pos, size-off, 0, fbuf, &map_ctrl, &rom_type_header, &rom_size, &ram_size, &company)) {
         header_pos = 0xffc0 + off;
