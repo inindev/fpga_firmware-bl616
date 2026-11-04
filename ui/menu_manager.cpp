@@ -39,6 +39,7 @@ void menu_input_loop() {
     while (menu_is_active() && overlay_on()) {
         if (menu_current()->redraw) {
             menu_current()->render();
+            overlay_hints(GLYPH_A GLYPH_B " Select");
             menu_current()->redraw = false;
         }
 
@@ -64,13 +65,7 @@ void menu_input_loop() {
             if (active < (int)options.size()-1) active++;
         }
 
-        for (int i = 0; i < options.size(); i++) {
-            overlay_cursor(0, options[i]);
-            if (i == active)
-                overlay_printf(">");
-            else
-                overlay_printf(" ");
-        }
+        overlay_highlight(options[active]);
 
         if (choose)     // button A or B pressed
         {

@@ -3,6 +3,7 @@ BL_SDK_BASE ?= ../bouffalo_sdk
 TANG_BOARD ?= console60k
 
 export BL_SDK_BASE
+export VERSION      # menu footer version, e.g. "a1b2c3d 2026-11-03"; from git when not set
 
 CHIP ?= bl616
 BOARD ?= bl616dk

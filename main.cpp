@@ -37,6 +37,7 @@ void fatfs_usbh_driver_register(struct usbh_msc *msc_class);
 #include "overlay.h"
 #include "init.h"
 #include "menu_manager.h"
+#include "fw_version.h"
 
 // Uncomment this to enable UART console (use with caution. it may interfere with MCU-FPGA communication)
 #define UART_CONSOLE
@@ -247,7 +248,7 @@ static void send_hid_to_core(uint16_t osd_key) {
 // // (R L X A RT LT DN UP START SELECT Y B)
 // Return: 1 button B pressed, 4: button A pressed, 2: next page, 3: previous page,
 //         5: OSD was turned back on (caller should redraw)
-// active is the entry chosen
+// active is the entry chosen, shown with the highlight bar
 int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
     if (*active < 0 || *active >= len)
         *active = 0;
@@ -262,7 +263,6 @@ int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
     }
 
     uint16_t joy1=0, joy2=0, hid1=0, hid2=0;
-    int last = *active;
 
     get_joypad_states(&joy1, &joy2, &hid1, &hid2);
     joy1 |= hid1;
@@ -295,15 +295,10 @@ int joy_choice(int start_line, int len, int *active, int overlay_key_code) {
         if (*active < len-1) (*active)++;
     }
 
-    overlay_cursor(0, start_line + (*active));
-    overlay_printf(">");
+    overlay_highlight(start_line + (*active));     // only sends anything when it moves
 
     // overlay_cursor(0, 27);
     // overlay_printf(" j1=%04x j2=%04x h1=%04x h2=%04x", joy1, joy2, hid1, hid2);
-    if (last != *active) {
-        overlay_cursor(0, start_line + last);
-        overlay_printf(" ");
-    }
     return 0;
 }
 
@@ -449,14 +444,6 @@ static void main_task(void *pvParameters)
         }
     }
 
-    // load monitor core at startup
-    string fname;
-    if (find_core_for_board(fname, "monitor.bin")) {
-        fpga_program(fname.c_str());
-    } else {
-        overlay_status("No monitor.bin found for board.");
-    }
-
     int menu_cnt = main_menu_config.size();
 
     while (1) {
@@ -464,7 +451,34 @@ static void main_task(void *pvParameters)
         int choice = 0;
         int resume = core_running ? 1 : 0;      // "Resume game" row above the menu items
         int rows = resume + menu_cnt;
-        int line_start = 13 - (rows+2+2) / 2;   // 2 lines for version, 2 lines for "TangCore"
+        int line_start = OVERLAY_TOP + (OVERLAY_ROWS - rows) / 2 - 1;  // one row above center
+
+        // menu item names; the list is centered on its widest item
+        std::vector<const char *> items;
+        if (resume)
+            items.push_back("Resume game");
+        for (int i = 0; i < menu_cnt; i++) {
+            const char *name = "";
+            if (main_menu_config[i] > 0) {
+                for (int j = 0; core_info_list[j].id != 0; j++) {
+                    if (core_info_list[j].id == main_menu_config[i]) {
+                        name = core_info_list[j].display_name;
+                        break;
+                    }
+                }
+            } else if (main_menu_config[i] == -1) {
+                name = "Cores";
+            } else if (main_menu_config[i] == -2) {
+                name = "Options";
+            }
+            items.push_back(name);
+        }
+        int width = 0;
+        for (const char *name : items)
+            if ((int)strlen(name) > width) width = strlen(name);
+        int col = (32 - width) / 2;
+        if (col < 2) col = 2;
+
         for (;;) {
             uint32_t now = bflb_mtimer_get_time_ms();
             if (active_core == -1) {
@@ -481,37 +495,14 @@ static void main_task(void *pvParameters)
                 overlay(overlay_on());                  // set correct overlay state
                 overlay_clear();
 
-                int line = line_start;
-                overlay_cursor(0, line++);
-                //              01234567890123456789012345678901
-                overlay_printf("       -== TangCore ==-");
-                line++;
-
-                // display all menu items
-                if (resume) {
-                    overlay_cursor(2, line++);
-                    overlay_printf("Resume game");
+                // the header (rows 0-4) is the core's logo, drawn by the FPGA
+                overlay_frame();
+                overlay_hints(GLYPH_B " Select");
+                for (int i = 0; i < rows; i++) {
+                    overlay_cursor(col, line_start + i);
+                    overlay_printf("%s", items[i]);
                 }
-                for (int i = 0; i < menu_cnt; i++) {
-                    overlay_cursor(2, line++);
-                    if (main_menu_config[i] > 0) {
-                        for (int j = 0; core_info_list[j].id != 0; j++) {
-                            if (core_info_list[j].id == main_menu_config[i]) {
-                                overlay_printf("%s", core_info_list[j].display_name);
-                                break;
-                            }
-                        }
-                    } else if (main_menu_config[i] == -1) {
-                        overlay_printf("Cores");
-                    } else if (main_menu_config[i] == -2) {
-                        overlay_printf("Options");
-                    }
-                }
-
-                line++;
-                overlay_cursor(2, line++);
-                overlay_printf("Version: ");
-                overlay_printf(__DATE__);
+                overlay_center(OVERLAY_FOOTER, "%s", FW_VERSION);
                 last_redraw_time = now;
                 redraw = false;
 
@@ -524,7 +515,7 @@ static void main_task(void *pvParameters)
                 // overlay_status("GPIO0-3 status: %08x %08x %08x %08x", *reg_gpio0, *reg_gpio1, *reg_gpio2, *reg_gpio3);
             }
 
-            int r = joy_choice(line_start+2, rows, &choice, OSD_KEY_CODE);
+            int r = joy_choice(line_start, rows, &choice, OSD_KEY_CODE);
             if (r == 1) break;
 
             if (r == 5) {
@@ -584,7 +575,7 @@ static void main_task(void *pvParameters)
 
 static void print_system_info(void) {
     // this is viewable with scripts/liveuart.py
-    overlay_status("TangCore %s", __DATE__);
+    overlay_status("TangCore %s", FW_VERSION);
     overlay_status("TangBoard: %s", BOARD_NAME);
     overlay_status("System clock: %u MHz", bflb_clk_get_system_clock(BL_SYSTEM_CLOCK_MCU_CLK) / 1000000);
     // UART registers

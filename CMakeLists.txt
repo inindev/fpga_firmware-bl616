@@ -39,5 +39,14 @@ file(GLOB_RECURSE MY_SOURCES
 target_sources(app PRIVATE ${MY_SOURCES})
 sdk_set_main_file(main.cpp)
 
+# fw_version.h (FW_VERSION for the menu footer), regenerated on every build
+set(FW_VERSION_H ${CMAKE_BINARY_DIR}/generated/fw_version.h)
+add_custom_target(fw_version
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${FW_VERSION_H}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/version.cmake
+    BYPRODUCTS ${FW_VERSION_H})
+add_dependencies(app fw_version)
+target_include_directories(app PRIVATE ${CMAKE_BINARY_DIR}/generated)
+
 project(tangcore CXX)
 

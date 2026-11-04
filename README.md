@@ -71,6 +71,11 @@ back to FPGA-Companion, write its image to 0x40000 again.
 (see `flash_prog_cfg.ini`). Get `bl616_fpga_partner_60kConsole.bin` from
 [Sipeed](https://dl.sipeed.com/shareURL/TANG/Console/09_MCU_FW).
 
+The firmware doesn't load a core at power-on: the menu is drawn by the monitor core, which
+the FPGA loads from its own flash. Write it there with openFPGALoader, the board plugged into
+the computer (the Partner firmware is then the USB debugger), e.g.
+`openFPGALoader -b tangconsole -f monitor_console138k.bin` (Nano 20K: `-b tangnano20k`).
+
 ## USB drive
 
 Cores and ROMs are read from a USB drive on the board's USB-C port. You need an OTG
@@ -78,7 +83,7 @@ adapter that also passes power. Use a hub to connect gamepads or a keyboard at t
 time. On the Nano 20K a USB microSD reader works; the board's own TF slot does not.
 
 ```
-cores/<board>/monitor.bin    menu core, loaded at power-on
+cores/<board>/monitor.bin    menu core, optional (only loaded from Cores)
 cores/<board>/nestang.bin
 cores/<board>/snestang.bin   ...
 nes/                         .nes ROMs

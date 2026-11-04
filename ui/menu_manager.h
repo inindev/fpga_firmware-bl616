@@ -32,8 +32,9 @@ struct DefaultMenu: Menu {
 
     void render() override {
         overlay_clear();
-        overlay_cursor(0, 13);
-        overlay_printf("<< Main Menu\n");
+        overlay_frame();
+        overlay_cursor(2, 13);
+        overlay_printf("<< Main Menu");
     }
 
     std::vector<int> get_options() override {

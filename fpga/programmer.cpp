@@ -1018,10 +1018,13 @@ bool fpga_program(const char *fname) {
     }
     jtag_exit_gpio_out_mode();
     if (!writeSRAM_end()) {
+        taskEXIT_CRITICAL();
+        free(fbuf_cached);
         overlay_status("Failed to program SRAM\n");
         goto load_core_close;
     }
     taskEXIT_CRITICAL();
+    free(fbuf_cached);          // not used by this path, but allocated above
 
 #else
     taskENTER_CRITICAL();

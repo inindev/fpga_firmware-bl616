@@ -9,8 +9,8 @@ extern "C" {
 #include "overlay.h"
 #include "utils.h"
 
-#define PAGESIZE 22
-#define TOPLINE 2
+#define PAGESIZE OVERLAY_ROWS
+#define TOPLINE OVERLAY_TOP
 
 // void FileChooser::set_fs(FATFS *fs) {
 //     this->fs = fs;
@@ -19,7 +19,7 @@ extern "C" {
 // list files in dir, starting from number `start` and return at most `len` files. `count` is set to total number of files.
 bool FileChooser::list_files(string dir, vector<FileEntry> &files, int start, int len, int *count) {
     DIR d;
-    
+
     if (f_opendir(&d, dir.c_str()) != 0)
         return false;
     files.clear();
@@ -53,18 +53,32 @@ bool FileChooser::choose_file(string &res) {
         bool r = list_files(this->curdir, files, page*PAGESIZE, PAGESIZE, &total);
         if (r) {
             pages = (total+PAGESIZE-1) / PAGESIZE;
-            overlay_status("Page ");
-            overlay_printf("%d/%d", page+1, pages);
             if (active > files.size()-1)
                 active = files.size()-1;
-            for (int i = 0; i < PAGESIZE; i++) {
-                int idx = page*PAGESIZE + i;
+
+            // path (without the drive) and page in the frame's top edge
+            char page_str[16];
+            snprintf(page_str, sizeof(page_str), "%d/%d", page+1, pages);
+            overlay_frame(curdir.substr(curdir.find(':')+1).c_str(), page_str);
+            overlay_hints(pages > 1 ? GLYPH_A GLYPH_B " Select  " GLYPH_LEFT GLYPH_RIGHT " Page"
+                                    : GLYPH_A GLYPH_B " Select");
+
+            // highlight bar over columns 1-30: icon in 2, name in 4-29, scroll markers in 30
+            for (int i = 0; i < files.size(); i++) {
                 overlay_cursor(2, i+TOPLINE);
-                if (i < files.size()) {
-                    overlay_printf(files[i].name.c_str());
-                    if (idx != 0 && files[i].is_dir)
-                        overlay_printf("/");
-                }
+                if (page == 0 && i == 0 && curdir == rootdir)       // return to main menu
+                    overlay_printf("%s", overlay_fit(files[i].name, 28).c_str());
+                else
+                    overlay_printf("%s %s", files[i].is_dir ? GLYPH_FOLDER : GLYPH_FILE,
+                                   overlay_fit(files[i].name, 26).c_str());
+            }
+            if (page > 0) {
+                overlay_cursor(30, TOPLINE);
+                overlay_printf(GLYPH_UP);
+            }
+            if (page < pages-1) {
+                overlay_cursor(30, TOPLINE+PAGESIZE-1);
+                overlay_printf(GLYPH_DOWN);
             }
             delay(300);
             while (1) {
@@ -95,9 +109,8 @@ bool FileChooser::choose_file(string &res) {
                 delay(10);
             }
         } else {
-            overlay_status("Error opening directory");
-            overlay_printf(" %d", r);
+            overlay_status("Error opening directory %d", r);
             return false;
         }
-    }        
+    }
 }

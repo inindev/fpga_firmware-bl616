@@ -144,23 +144,21 @@ PcxtMenu::PcxtMenu(const char *imgdir) : imgdir(imgdir) {}
 
 void PcxtMenu::render() {
     overlay_clear();
-    overlay_cursor(0, 10);
-    //              012345678901234567890123456789012
-    overlay_printf("          --- PCXT ---          \n");
-    overlay_cursor(0, 12);
+    overlay_frame("PC/XT");
+    overlay_cursor(2, 12);
     if (floppy[0])
-        overlay_printf("  A: %s\n", floppy_fname[0].c_str());
+        overlay_printf("A: %s", overlay_fit(floppy_fname[0], 26).c_str());
     else
-        overlay_printf("  A: <empty>\n");
-    overlay_cursor(0, 13);
+        overlay_printf("A: <empty>");
+    overlay_cursor(2, 13);
     if (floppy[1])
-        overlay_printf("  B: %s\n", floppy_fname[1].c_str());
+        overlay_printf("B: %s", overlay_fit(floppy_fname[1], 26).c_str());
     else
-        overlay_printf("  B: <empty>\n");
-    overlay_cursor(0, 15);
-    overlay_printf("  Reset Core\n");
-    overlay_cursor(0, 17);
-    overlay_printf("  << Main Menu\n");
+        overlay_printf("B: <empty>");
+    overlay_cursor(2, 15);
+    overlay_printf("Reset Core");
+    overlay_cursor(2, 17);
+    overlay_printf("<< Main Menu");
 }
 
 std::vector<int> PcxtMenu::get_options() {
