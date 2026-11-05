@@ -53,6 +53,11 @@ extern void overlay_hints(const char *hints);
 extern void overlay_highlight(int row);     // highlight bar on columns 1-30 (-1: none)
 extern void overlay_refresh();              // send the whole screen again, without clearing
 extern std::string overlay_fit(const std::string &s, int width);
+
+// Overlay text is UTF-8: these count and cut by character (screen column), not byte.
+extern int utf8_len(const std::string &s);
+extern std::string utf8_head(const std::string &s, int n);     // the first n characters
+extern std::string utf8_tail(const std::string &s, int n);     // the last n characters
 extern void overlay_message(const char *msg, int center);
 extern void overlay_wait_button(int timeout_ms = 0);   // wait for A or B (0: no limit)
 extern void overlay(int state);     // turn overlay on/off

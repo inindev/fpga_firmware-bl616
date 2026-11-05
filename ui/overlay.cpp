@@ -18,11 +18,57 @@ int overlay_on() {
     return _overlay_on;
 }
 
-// Copy of the screen, so that a row can be sent again with the highlight bit (bit 7) set
-// on columns 1-30. The FPGA's cursor is tracked the same way: it stops at column 32.
-static char screen[28][32];
+// Overlay text is UTF-8. The font has the 256 Latin-1 characters, so each character is sent
+// as its code point; one above U+00FF is sent as '?'.
+
+// Copy of the screen (font codes), so that it can be sent again. The FPGA's cursor is
+// tracked the same way: it stops at column 32.
+static uint8_t screen[28][32];
 static int cur_x, cur_y;
 static int hl_row = -1;
+
+static bool utf8_cont(uint8_t c) {
+    return (c & 0xC0) == 0x80;
+}
+
+// byte offset of character k in s (s.size() if s has k characters or fewer)
+static size_t utf8_offset(const std::string &s, int k) {
+    for (size_t i = 0; i < s.size(); i++)
+        if (!utf8_cont(s[i]) && k-- == 0)
+            return i;
+    return s.size();
+}
+
+int utf8_len(const std::string &s) {
+    int n = 0;
+    for (uint8_t c : s)
+        n += !utf8_cont(c);
+    return n;
+}
+
+// font codes for UTF-8 text: one per character. A continuation byte with no lead byte
+// is skipped; a malformed or overlong sequence is one '?'.
+static std::string utf8_to_font(const char *s) {
+    std::string out;
+    for (const uint8_t *p = (const uint8_t *)s; *p; ) {
+        uint8_t c = *p++;
+        if (c < 0x80) {
+            out += c;
+            continue;
+        }
+        if (utf8_cont(c))
+            continue;
+        int more = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1;
+        uint32_t cp = c & (0x3F >> more);
+        int got = 0;
+        for (; got < more && utf8_cont(*p); got++)
+            cp = cp << 6 | (*p++ & 0x3F);
+        while (utf8_cont(*p))
+            p++;
+        out += (got == more && cp >= 0x80 && cp <= 0xFF) ? (char)cp : '?';
+    }
+    return out;
+}
 
 void overlay_cursor(int col, int row) {
     // uart1 command: 4 x[7:0] y[7:0]
@@ -35,46 +81,47 @@ void overlay_cursor(int col, int row) {
     cur_y = row;
 }
 
-// print at the cursor, keeping the copy and the highlight up to date
-static void send_text(const char *s) {
+// print font codes at the cursor, keeping the copy up to date
+static void send_codes(const uint8_t *codes, int len) {
     taskENTER_CRITICAL();
-    int len = strlen(s);
     fpga_tx_header(0x05, len+1);
-    for(int i = 0; i < len; i++) {
-        uint8_t c = s[i];
-        if (cur_x < 32 && cur_y >= 0 && cur_y < 28) {
-            screen[cur_y][cur_x] = c;
-            if (cur_y == hl_row && cur_x >= 1 && cur_x <= 30)
-                c |= 0x80;
-            cur_x++;
-        }
-        fpga_tx_byte(c);
+    for (int i = 0; i < len; i++) {
+        if (cur_x < 32 && cur_y >= 0 && cur_y < 28)
+            screen[cur_y][cur_x++] = codes[i];
+        fpga_tx_byte(codes[i]);
     }
     taskEXIT_CRITICAL();
 }
 
-// send columns 1-30 of a row again, highlighted if it is hl_row
-static void redraw_row(int row) {
-    char line[31];
-    for (int x = 1; x <= 30; x++)
-        line[x-1] = screen[row][x] ? screen[row][x] : ' ';
-    line[30] = '\0';
-    overlay_cursor(1, row);
-    send_text(line);
+// print UTF-8 text at the cursor
+static void send_text(const char *s) {
+    std::string codes = utf8_to_font(s);
+    send_codes((const uint8_t *)codes.data(), codes.size());
 }
 
-// send the whole screen again from the copy, row by row with its final content: restores it
-// if the core's text memory was reset, and never shows a blank screen as a clear would
+static void send_highlight() {
+    // uart1 command: 0x0f row[7:0] x0[7:0] x1[7:0] (row 0xFF: none)
+    taskENTER_CRITICAL();
+    fpga_tx_header(0x0f, 4);
+    fpga_tx_byte(hl_row >= 0 && hl_row < 28 ? hl_row : 0xFF);
+    fpga_tx_byte(1);
+    fpga_tx_byte(30);
+    taskEXIT_CRITICAL();
+}
+
+// send the whole screen again from the copy, row by row with its final content, and the
+// highlight: restores them if the core was reset, and never shows a blank screen as a
+// clear would
 void overlay_refresh() {
     int x = cur_x, y = cur_y;
-    char line[33];
+    uint8_t line[32];
     for (int row = 0; row < 28; row++) {
         for (int col = 0; col < 32; col++)
             line[col] = screen[row][col] ? screen[row][col] : ' ';
-        line[32] = '\0';
         overlay_cursor(0, row);
-        send_text(line);
+        send_codes(line, 32);
     }
+    send_highlight();
     overlay_cursor(x, y);
 }
 
@@ -82,13 +129,8 @@ void overlay_refresh() {
 void overlay_highlight(int row) {
     if (row == hl_row)
         return;
-    int x = cur_x, y = cur_y, old = hl_row;
     hl_row = row;
-    if (old >= 0 && old < 28)
-        redraw_row(old);
-    if (row >= 0 && row < 28)
-        redraw_row(row);
-    overlay_cursor(x, y);
+    send_highlight();
 }
 
 // print to UART without the core displaying it. liveuart.py catches this.
@@ -118,7 +160,7 @@ void overlay_printf(const char *fmt, ...) {
 }
 
 void overlay_clear() {
-    hl_row = -1;
+    overlay_highlight(-1);
     for (int i = 0; i < 28; i++) {
         overlay_cursor(0, i);
         //              01234567890123456789012345678901
@@ -130,12 +172,13 @@ void overlay_clear() {
 void overlay_center(int row, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    char buf[33];
+    char buf[256];
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    overlay_cursor((32 - strlen(buf)) / 2, row);
-    overlay_printf("%s", buf);
+    std::string s = utf8_head(buf, 32);
+    overlay_cursor((32 - utf8_len(s)) / 2, row);
+    send_text(s.c_str());
 }
 
 // the status row also holds the button hints: pad to the end of the row to replace them
@@ -145,14 +188,13 @@ void overlay_status(const char *fmt, ...) {
     char buf[256];
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
-    buf[255] = '\0';
-    for (int n = strlen(buf); n < 31; n++) {
-        buf[n] = ' ';
-        buf[n+1] = '\0';
-    }
+    std::string s(buf);
+    int n = utf8_len(s);
+    if (n < 31)
+        s.append(31 - n, ' ');
 
     overlay_cursor(1, OVERLAY_STATUS);
-    send_text(buf);
+    send_text(s.c_str());
 }
 
 // double-line frame around the content area (rows 5-24, columns 0-31), with labels in its
@@ -161,7 +203,8 @@ void overlay_status(const char *fmt, ...) {
 void overlay_frame(const char *left, const char *right) {
     std::string top(BOX2_TL);
     top += std::string(30, BOX2_H[0]) + BOX2_TR;
-    int rlen = strlen(right);
+    // top is one byte per column until the labels go in: right first, then left before it
+    int rlen = utf8_len(right);
     int rstart = 31;                // first column of " right "
     if (rlen) {
         rstart = 30 - (rlen + 2);
@@ -169,10 +212,13 @@ void overlay_frame(const char *left, const char *right) {
     }
     std::string label(left);
     int maxlen = rstart - 5;        // corner, one line each side, two spaces
-    if ((int)label.size() > maxlen)
-        label = GLYPH_ELLIPSIS + label.substr(label.size() - (maxlen - 1));
-    if (!label.empty())
-        top.replace(2, label.size() + 2, " " + label + " ");
+    int len = utf8_len(label);
+    if (len > maxlen) {
+        label = GLYPH_ELLIPSIS + utf8_tail(label, maxlen - 1);
+        len = maxlen;
+    }
+    if (len)
+        top.replace(2, len + 2, " " + label + " ");
 
     overlay_cursor(0, FRAME_TOP);
     overlay_printf("%s", top.c_str());
@@ -195,11 +241,22 @@ void overlay_hints(const char *hints) {
     overlay_center(OVERLAY_STATUS, "%s", hints);
 }
 
+// the first n characters of s
+std::string utf8_head(const std::string &s, int n) {
+    return s.substr(0, utf8_offset(s, n));
+}
+
+// the last n characters of s
+std::string utf8_tail(const std::string &s, int n) {
+    int len = utf8_len(s);
+    return n >= len ? s : s.substr(utf8_offset(s, len - n));
+}
+
 // s cut to `width` characters, ending in an ellipsis if it was longer
 std::string overlay_fit(const std::string &s, int width) {
-    if ((int)s.size() <= width)
+    if (utf8_len(s) <= width)
         return s;
-    return s.substr(0, width - 1) + GLYPH_ELLIPSIS;
+    return utf8_head(s, width - 1) + GLYPH_ELLIPSIS;
 }
 
 // show a pop-up message, press any key to discard (caller needs to redraw screen)
@@ -207,23 +264,19 @@ std::string overlay_fit(const std::string &s, int width) {
 // center: whether to center the text
 void overlay_message(const char *msg, int center) {
     overlay_highlight(-1);      // the pop-up may cover the highlighted row
-    // count number of lines and max width
-    int w[10], lines=10, maxw = 0;
-    int len = strlen(msg);
-    const char *end = msg + len;
-    const char *sol = msg;
-    for (int i = 0; i < 10; i++) {
+    // split into lines (at most 10), each cut to 26 characters
+    std::string text[10];
+    int w[10], lines = 0, maxw = 0;
+    for (const char *sol = msg; lines < 10; lines++) {
         const char *eol = strchr(sol, '\n');
-        if (eol) { // found \n
-            w[i] = std::min(eol - sol, 26);
-            maxw = std::max(w[i], maxw);
-            sol = eol+1;
-        } else {
-            w[i] = std::min(end - sol, 26);
-            maxw = std::max(w[i], maxw);
-            lines = i+1;
+        text[lines] = utf8_head(eol ? std::string(sol, eol - sol) : std::string(sol), 26);
+        w[lines] = utf8_len(text[lines]);
+        maxw = std::max(w[lines], maxw);
+        if (!eol) {
+            lines++;
             break;
-        }		
+        }
+        sol = eol + 1;
     }
     // status("");
     // printf("w=%d, lines=%d", maxw, lines);
@@ -252,17 +305,12 @@ void overlay_message(const char *msg, int center) {
                 overlay_printf(" ");
         }
     // print text
-    const char *s = msg;
     for (int i = 0; i < lines; i++) {
         if (center)
             overlay_cursor(16-(w[i]>>1), y0+i+1);
         else
             overlay_cursor(x0+1, y0+i+1);
-        while (*s != '\n' && *s != '\0') {
-            overlay_printf("%c", *s);
-            s++;
-        }
-        s++;
+        send_text(text[i].c_str());
     }
     overlay_wait_button();
 }
