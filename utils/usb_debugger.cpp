@@ -55,6 +55,15 @@ void restart_as_usb_debugger(void) {
 
     HBN_Set_User_Boot_Config(0);    // the next boot follows the boot pin
 
+#ifdef TANG_PRIMER25K
+    // release the BL616's pins to the dock before the reset, as FPGA-Companion does
+    bflb_mtimer_delay_ms(250);
+    static const uint8_t pins[] = {0, 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 27,
+                                   28, 29, 30};
+    for (uint8_t pin : pins)
+        bflb_gpio_deinit(gpio_dev, pin);
+#endif
+
     while (1) {
         // wait for the watchdog reset
     }
