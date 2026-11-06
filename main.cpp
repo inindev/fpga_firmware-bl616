@@ -39,6 +39,7 @@ void fatfs_usbh_driver_register(struct usbh_msc *msc_class);
 #include "init.h"
 #include "menu_manager.h"
 #include "fw_version.h"
+#include "settings.h"
 
 // Uncomment this to enable UART console (use with caution. it may interfere with MCU-FPGA communication)
 #define UART_CONSOLE
@@ -46,7 +47,7 @@ void fatfs_usbh_driver_register(struct usbh_msc *msc_class);
 /////////////////////////////////////////////////////////////////////////////////
 // Global state
 
-int option_osd_key = OPTION_OSD_KEY_SELECT_RIGHT;
+int option_osd_key = OPTION_OSD_KEY_SELECT_START;
 int16_t active_core = -1;           // firmware detected this core as active
 bool core_running;                  // a rom is loaded and running on the core
 struct core_info *core;
@@ -138,6 +139,7 @@ static int menu_loadrom(const char *dir) {
     if (fname.find(string(drv) + "cores") == 0) {
         overlay_status("Core: %s", fname.c_str());
         fpga_program(fname.c_str());
+        menu_font_reset();              // the new core has the ROM font
         _overlay_on = 1;                // turn on overlay after core is loaded
         core_running = false;           // no rom on the new core yet
         return 0;       // return to main menu
@@ -169,6 +171,7 @@ static int menu_loadrom(const char *dir) {
             if (find_core_for_board(fname_core, core->core_file)) {
                 // load core
                 fpga_program(fname_core.c_str());
+                menu_font_reset();
                 _overlay_on = 1;
 
                 // allow 2 seconds for core to start
@@ -220,10 +223,6 @@ static void volume_bar(void) {
     uint8_t font[VOLUME_BAR_CHARS * 8];
     volume_bar_font(volume_step, VOLUME_MAX, font);
     overlay_strip(font);
-}
-
-static void menu_options(void) {
-    // to be implemented
 }
 
 #define OSD_HOLD_MS 400             // OSD key must be held this long to open the OSD in game
@@ -631,6 +630,8 @@ static void main_task(void *pvParameters)
             overlay_status("USB drive mounted in %d ms", bflb_mtimer_get_time_ms() - start);
         }
     }
+    if (res == FR_OK)
+        settings_load();                // tangcore.ini; without it, the defaults
 
     int menu_cnt = main_menu_config.size();
 
@@ -688,7 +689,12 @@ static void main_task(void *pvParameters)
                 }
             }
             if (redraw) {
-                active_core = get_core_id();            // allow jtag to change core underneath us
+                int id = get_core_id();                 // allow jtag to change core underneath us
+                if (id != active_core)
+                    menu_font_reset();                  // a core loaded over JTAG has the ROM font
+                active_core = id;
+                if (active_core >= 0)
+                    menu_font_sync();                   // the font chosen in Options
                 overlay(overlay_on());                  // set correct overlay state
                 overlay_clear();
 
@@ -767,7 +773,7 @@ static void main_task(void *pvParameters)
             menu_loadrom(dir.c_str());
         } else if (item == -2) {
             // Options
-            menu_options();
+            options_menu();
         } 
 
         delay(300);
