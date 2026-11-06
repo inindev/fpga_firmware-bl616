@@ -65,7 +65,8 @@ static std::string utf8_to_font(const char *s) {
             cp = cp << 6 | (*p++ & 0x3F);
         while (utf8_cont(*p))
             p++;
-        out += (got == more && cp >= 0x80 && cp <= 0xFF) ? (char)cp : '?';
+        // U+0080-U+009F too: codes 0x80-0x9F are the volume bar's bitmap (overlay_strip)
+        out += (got == more && cp >= 0xA0 && cp <= 0xFF) ? (char)cp : '?';
     }
     return out;
 }
@@ -338,3 +339,65 @@ void overlay(int state) {
     taskEXIT_CRITICAL();
 }
 
+// Strip (command 0x08 bit 1): the core shows only columns 8-23 of rows 23-24, on a dark
+// band, and keeps the game running. _overlay_on stays 0, so the keyboard still goes to the
+// core. The cells hold font codes 0x80-0x9F, whose font bytes are the bar's bitmap (command
+// 0x10). Their own content and the highlight bar are kept and put back by
+// overlay_strip_off().
+static uint8_t strip_saved[2][16];
+static int strip_hl;
+static bool strip_shown;            // the cells hold the strip characters
+
+void overlay_strip(const uint8_t *font) {
+    // the bitmap: 32 characters of 8 bytes, 8 characters per frame
+    for (int i = 0; i < 32; i += 8) {
+        taskENTER_CRITICAL();
+        fpga_tx_header(0x10, 2 + 64);
+        fpga_tx_byte(0x80 + i);
+        for (int j = 0; j < 64; j++)
+            fpga_tx_byte(font[i * 8 + j]);
+        taskEXIT_CRITICAL();
+    }
+    if (!strip_shown) {
+        int x = cur_x, y = cur_y;
+        for (int row = 0; row < 2; row++) {
+            uint8_t codes[16];
+            for (int i = 0; i < 16; i++) {
+                uint8_t c = screen[OVERLAY_STRIP_Y + row][OVERLAY_STRIP_X + i];
+                strip_saved[row][i] = c ? c : ' ';
+                codes[i] = 0x80 + row * 16 + i;
+            }
+            overlay_cursor(OVERLAY_STRIP_X, OVERLAY_STRIP_Y + row);
+            send_codes(codes, 16);
+        }
+        overlay_cursor(x, y);
+        strip_hl = hl_row;
+        overlay_highlight(-1);      // it would light up the whole strip
+        strip_shown = true;
+    }
+    taskENTER_CRITICAL();
+    if (!_overlay_on) {             // the menu wins if it was opened meanwhile
+        fpga_tx_header(0x08, 2);
+        fpga_tx_byte(3);
+    }
+    taskEXIT_CRITICAL();
+}
+
+void overlay_strip_off() {
+    if (!strip_shown)
+        return;
+    taskENTER_CRITICAL();
+    if (!_overlay_on) {             // the menu wins if it was opened meanwhile
+        fpga_tx_header(0x08, 2);
+        fpga_tx_byte(0);
+    }
+    taskEXIT_CRITICAL();
+    int x = cur_x, y = cur_y;
+    for (int row = 0; row < 2; row++) {
+        overlay_cursor(OVERLAY_STRIP_X, OVERLAY_STRIP_Y + row);
+        send_codes(strip_saved[row], 16);
+    }
+    overlay_cursor(x, y);
+    overlay_highlight(strip_hl);
+    strip_shown = false;
+}

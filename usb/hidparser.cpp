@@ -674,6 +674,9 @@ static inline bool key_held(const uint8_t keys[32], int usage) {
 	return keys[usage / 8] & (1 << (usage % 8));
 }
 
+extern volatile int volume_request;     // main.cpp: volume steps asked for
+static uint8_t volume_keys_held;        // bit 0: '-', bit 1: '=', pressed with Ctrl for the volume
+
 // Keyboard report: convert to PS/2 scancodes and send them to the core.
 // F12 toggles the OSD state. In OSD, arrow keys and space/enter are used for navigation.
 void kbd_parse(const hid_report_t *report, struct hid_kbd_state_S *state,
@@ -693,6 +696,7 @@ void kbd_parse(const hid_report_t *report, struct hid_kbd_state_S *state,
 	}
 
 	// send scancodes for keys that changed
+	bool ctrl = modifiers & 0x11;
 	for (int i = 4; i < 256; i++) {
 		bool now = key_held(keys, i);
 		bool last = key_held(state->keys, i);
@@ -701,6 +705,23 @@ void kbd_parse(const hid_report_t *report, struct hid_kbd_state_S *state,
 		if (i == 0x45) {     // F12 toggles the OSD, do not send to the core
 			if (now) overlay(!overlay_on());
 			continue;
+		}
+
+		// Ctrl + - / Ctrl + = in game: master volume down / up (main.cpp applies it).
+		// The key is kept from the core, its release too, even if Ctrl is let go first.
+		if (i == 0x2D || i == 0x2E) {
+			uint8_t bit = 1 << (i - 0x2D);
+			if (now && send && ctrl) {
+				taskENTER_CRITICAL();
+				volume_request += i == 0x2E ? 1 : -1;
+				taskEXIT_CRITICAL();
+				volume_keys_held |= bit;
+				continue;
+			}
+			if (!now && (volume_keys_held & bit)) {
+				volume_keys_held &= ~bit;
+				continue;
+			}
 		}
 		if (now) {
 			// key pressed

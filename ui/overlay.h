@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <string>
 
 // Screen layout (32x28 characters): rows 0-4 are the header (the core's logo, drawn by the
@@ -11,6 +12,11 @@
 #define OVERLAY_ROWS    18      // content rows 6-23, columns 1-30
 #define OVERLAY_STATUS  25      // status messages and button hints
 #define OVERLAY_FOOTER  27
+// Strip: the volume bar over the running game, columns 8-23 of rows 23-24 (the cores'
+// STRIP_*), its bottom edge 7/8 down the picture. It shows font codes 0x80-0x9F, which the
+// firmware writes (volume_bar.h); menu text never prints them.
+#define OVERLAY_STRIP_X 8
+#define OVERLAY_STRIP_Y 23
 
 // Extra glyphs in the menu font (see scripts/font_glyphs.py), as strings for
 // overlay_printf. 0x09, 0x0A and 0x0D are left blank, so "\t", "\n" and "\r" print nothing.
@@ -61,3 +67,7 @@ extern std::string utf8_tail(const std::string &s, int n);     // the last n cha
 extern void overlay_message(const char *msg, int center);
 extern void overlay_wait_button(int timeout_ms = 0);   // wait for A or B (0: no limit)
 extern void overlay(int state);     // turn overlay on/off
+// Strip: only the volume bar, on a dark band over the running game. It doesn't count as the
+// overlay being on, and the overlay being turned on ends it.
+extern void overlay_strip(const uint8_t *font); // show the bar: 32 characters' font bytes
+extern void overlay_strip_off();                // hide it and put its cells back as they were

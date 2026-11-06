@@ -35,6 +35,7 @@ void fatfs_usbh_driver_register(struct usbh_msc *msc_class);
 #include "utils.h"
 #include "cores.h"
 #include "overlay.h"
+#include "volume_bar.h"
 #include "init.h"
 #include "menu_manager.h"
 #include "fw_version.h"
@@ -195,11 +196,47 @@ static int menu_loadrom(const char *dir) {
     return -1;
 }
 
+// Master volume, in the HDMI encoder: 0 (mute) to 10 (0 dB), 3 dB per step. A core starts
+// at 7 when it is loaded, so the step is sent again whenever control returns to the game.
+#define VOLUME_MAX 10
+static int volume_step = 7;
+volatile int volume_request;        // steps asked for by the keyboard (USB task), applied here
+
+static void set_volume(int step) {
+    if (step < 0) step = 0;
+    if (step > VOLUME_MAX) step = VOLUME_MAX;
+    volume_step = step;
+    taskENTER_CRITICAL();           // the USB task also sends (PS/2 scancodes)
+    fpga_tx_header(0x0e, 2);
+    fpga_tx_byte(step);
+    taskEXIT_CRITICAL();
+}
+
+// TV style volume bar, on the overlay's strip over the running game (volume_bar.h).
+// Hidden VOLUME_BAR_MS after the last change.
+#define VOLUME_BAR_MS 1500
+
+static void volume_bar(void) {
+    uint8_t font[VOLUME_BAR_CHARS * 8];
+    volume_bar_font(volume_step, VOLUME_MAX, font);
+    overlay_strip(font);
+}
+
 static void menu_options(void) {
     // to be implemented
 }
 
 #define OSD_HOLD_MS 400             // OSD key must be held this long to open the OSD in game
+
+// Volume hotkeys on a pad: Select + L down, Select + R up (other buttons may be held too)
+#define PAD_SELECT  0x004
+#define PAD_L       0x400
+#define PAD_R       0x800
+static int pad_volume_dir(uint16_t p) {
+    if ((p & (PAD_SELECT | PAD_L | PAD_R)) == (PAD_SELECT | PAD_L)) return -1;
+    if ((p & (PAD_SELECT | PAD_L | PAD_R)) == (PAD_SELECT | PAD_R)) return 1;
+    return 0;
+}
 
 static void send_hid(uint16_t hid1, uint16_t hid2) {
     fpga_tx_header(0x09, 5);
@@ -210,15 +247,22 @@ static void send_hid(uint16_t hid1, uint16_t hid2) {
 }
 
 // keep sending HID state to core until the OSD key is held for OSD_HOLD_MS,
-// or the keyboard turns the OSD on
+// or the keyboard turns the OSD on. Volume hotkeys act here, while the game runs.
 static void send_hid_to_core(uint16_t osd_key) {
     uint16_t hid1_old = 0, hid2_old = 0;
     bool first = true;
     bool held = false;
     uint64_t held_since = 0;
+    int pad_dir_old = 0;
+    bool bar = false;           // volume bar shown
+    uint64_t bar_since = 0;     // time of the last press that showed it
     dprint("Start sending HID to core...");
+    set_volume(volume_step);    // a core loaded since the last game starts at its default
+    taskENTER_CRITICAL();
+    volume_request = 0;
+    taskEXIT_CRITICAL();
     while (1) {
-        uint16_t joy1=0, joy2=0, hid1=0, hid2=0;    
+        uint16_t joy1=0, joy2=0, hid1=0, hid2=0;
         get_joypad_states(&joy1, &joy2, &hid1, &hid2);
         if (first || hid1 != hid1_old || hid2 != hid2_old) {    // send HID if changed
             send_hid(hid1, hid2);
@@ -226,6 +270,39 @@ static void send_hid_to_core(uint16_t osd_key) {
             hid2_old = hid2;
             first = false;
         }
+
+        // one volume step per press of Select + L / Select + R, on any pad
+        int pad_dir = 0;
+        for (uint16_t p : {joy1, joy2, hid1, hid2})
+            if (pad_volume_dir(p)) pad_dir = pad_volume_dir(p);
+        bool pressed = false;
+        if (pad_dir && pad_dir != pad_dir_old) {
+            set_volume(volume_step + pad_dir);
+            pressed = true;
+        }
+        pad_dir_old = pad_dir;
+
+        // Ctrl + - / Ctrl + = from the keyboard
+        taskENTER_CRITICAL();
+        int request = volume_request;
+        volume_request = 0;
+        taskEXIT_CRITICAL();
+        if (request) {
+            set_volume(volume_step + request);
+            pressed = true;
+        }
+
+        // the bar, until VOLUME_BAR_MS after the last press
+        uint64_t now_ms = bflb_mtimer_get_time_ms();
+        if (pressed) {
+            volume_bar();
+            bar = true;
+            bar_since = now_ms;
+        } else if (bar && now_ms - bar_since >= VOLUME_BAR_MS) {
+            overlay_strip_off();
+            bar = false;
+        }
+
         if (joy1 == osd_key || joy2 == osd_key || hid1 == osd_key || hid2 == osd_key) {
             uint64_t now = bflb_mtimer_get_time_ms();
             if (!held) {
@@ -242,6 +319,7 @@ static void send_hid_to_core(uint16_t osd_key) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     send_hid(0, 0);            // the core should not see buttons held while the OSD is up
+    overlay_strip_off();        // the menu wins: no bar, and its row back as it was
     dprint("Stopped sending HID to core.");
 }
 
