@@ -1,5 +1,6 @@
 #include <vector>
 #include <string>
+#include <strings.h>
 #include "cores.h"
 
 #include "ff.h"
@@ -20,6 +21,14 @@ struct core_info *find_core_by_id(uint16_t id) {
     return NULL;
 }
 
+struct core_info *find_core_by_rbf(const char *rbf) {
+    for (auto &core : core_info_list) {
+        if (core.rbf && strcasecmp(core.rbf, rbf) == 0)
+            return &core;
+    }
+    return NULL;
+}
+
 Menu *create_default_menu(const char *imgdir) {
     dprint("Creating default menu\n");
     return new DefaultMenu();
@@ -32,17 +41,21 @@ Menu *create_pcxt_menu(const char *imgdir) {
 
 void init_core_list() {
     core_info_list = {
-        {1, "NES", "nes", "nestang.bin", loadnes, create_default_menu},
-        {2, "SNES", "snes", "snestang.bin", loadsnes, create_default_menu},
-        {3, "Game Boy Advance", "gba", "gbatang.bin", loadgba, create_default_menu},
-        {4, "MegaDrive / Genesis", "genesis", "mdtang.bin", loadmd, create_default_menu},
-        {5, "Sega Master System", "sms", "smstang.bin", loadsms, create_default_menu},
-        {6, "IBM PC/XT", "pc", "pctang.bin", loadpc, create_pcxt_menu}
+        {1, "NES", "nes", "nestang.bin", NULL, loadnes, create_default_menu},
+        {2, "SNES", "snes", "snestang.bin", NULL, loadsnes, create_default_menu},
+        {3, "Game Boy Advance", "gba", "gbatang.bin", NULL, loadgba, create_default_menu},
+        {4, "MegaDrive / Genesis", "genesis", "mdtang.bin", NULL, loadmd, create_default_menu},
+        {5, "Sega Master System", "sms", "smstang.bin", NULL, loadsms, create_default_menu},
+        {6, "IBM PC/XT", "pc", "pctang.bin", NULL, loadpc, create_pcxt_menu},
+        {7, "Arcade", ARCADE_DIR, "taitosj.bin", "TaitoSJ", loadtaitosj, create_default_menu}
     };
 
     main_menu_config = {1,2,
 #if defined(TANG_MEGA60K) || defined(TANG_MEGA138K) || defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
         3,4,5,6,
+#endif
+#if defined(TANG_NANO20K)
+        7,
 #endif
         -1, -2
     };

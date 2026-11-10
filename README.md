@@ -23,7 +23,7 @@ Choose the board with `TANG_BOARD` (default `console60k`):
 
 | `TANG_BOARD` | Board | Cores in the menu |
 |---|---|---|
-| `nano20k` | Tang Nano 20K | NES, SNES |
+| `nano20k` | Tang Nano 20K | NES, SNES, Arcade (Taito SJ) |
 | `console60k`, `console138k` | Tang Console 60K / 138K | NES, SNES, GBA, Genesis, SMS, PC/XT |
 | `mega60k`, `mega138k` | Tang Mega 60K / 138K | NES, SNES, GBA, Genesis, SMS, PC/XT |
 | `primer25k` | Tang Primer 25K | NES, SNES |
@@ -88,14 +88,43 @@ cores/<board>/nestang.bin
 cores/<board>/snestang.bin   ...
 nes/                         .nes ROMs
 snes/                        .sfc / .smc ROMs
+arcade/                      arcade games: .mra files (Nano 20K: Taito SJ)
+arcade/mame/                 MAME ROM zips, e.g. elevator.zip
 ```
 
 `<board>` is the `TANG_BOARD` name, e.g. `cores/nano20k/`. Cores directly in `cores/`
 are used when the board folder doesn't have them. The firmware picks the core from the ROM's
-folder name.
+folder name; for an arcade game, from the `.mra` file.
+
+### Arcade games
+
+Arcade games work as on MiSTer: each game is an MRA file (MiSTer ROM description), which
+names the core and lists the ROM files, from MAME zips, that make up the core's ROM image.
+Copy the core's `.mra` files into `arcade/` (subfolders work too, e.g. `arcade/_alt/`) and
+all MAME zips into `arcade/mame/`, as MiSTer's `games/mame/`. The main menu's Arcade entry
+lists the files in `arcade/`; the file name is the game's title.
+
+When you choose a game, the firmware
+
+- loads the core named by `<rbf>` (matched to the core table, e.g. `TaitoSJ` is
+  `taitosj.bin`), if it isn't running already;
+- finds each `<part>` of `<rom index="0">` in the zip(s) the MRA names (`zip="a.zip|b.zip"`:
+  tried in order), by CRC and then by file name, so split and merged sets both work (as on
+  MiSTer, a file found by name is used even if its CRC differs);
+- checks that each file unpacks (against the zip's own CRC), then sends the image: the parts
+  in order, with the padding and data the MRA lists (`repeat`, `offset`, `length` and hex
+  data, as MiSTer reads them);
+- sends the game's settings as the core's configuration: each core maps the MRA's DIP switch
+  defaults (`<switches default>`) and its other `<rom>`s to it. Taito SJ: switch bytes 1-3
+  and the PCB byte in `<rom index="1">`.
+
+A missing zip or ROM file, or a damaged zip, is shown on screen. The DIP switches are the MRA's
+defaults; they can't be changed in the menu. MRA features that change how the image is built
+and that the firmware doesn't have (`<interleave>`, `<patch>`, `map`, an `md5` check) are
+reported as errors; the parser is in `core/mra.cpp`, the image builder in `core/mra_image.cpp`.
 
 On macOS, eject the drive before unplugging it, or Finder leaves `._` files next to the
-ROMs, which show up in the menu as games. `dot_clean -m /Volumes/<drive>` removes them.
+ROMs and MRA files, which show up in the menu as games. `dot_clean -m /Volumes/<drive>` removes them.
 
 ## Acknowledgements
 

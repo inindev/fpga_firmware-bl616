@@ -24,7 +24,7 @@ find_package(bouffalo_sdk REQUIRED HINTS $ENV{BL_SDK_BASE})
 
 # Add include directories
 sdk_add_include_directories(
-    . usb fpga ui core utils
+    . usb fpga ui core utils third_party/tinf
 )
 
 # Add source files
@@ -35,6 +35,7 @@ file(GLOB_RECURSE MY_SOURCES
     "ui/*.cpp"
     "core/*.cpp"
     "utils/*.cpp"
+    "third_party/tinf/*.c"      # tinf 1.2.1 (zlib license): inflate for ROM zips
 )
 
 target_sources(app PRIVATE ${MY_SOURCES})

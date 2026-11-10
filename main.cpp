@@ -40,6 +40,7 @@ void fatfs_usbh_driver_register(struct usbh_msc *msc_class);
 #include "menu_manager.h"
 #include "fw_version.h"
 #include "settings.h"
+#include "mra_image.h"
 
 // Uncomment this to enable UART console (use with caution. it may interfere with MCU-FPGA communication)
 #define UART_CONSOLE
@@ -145,18 +146,35 @@ static int menu_loadrom(const char *dir) {
         return 0;       // return to main menu
     } 
 
-    // find core info entry
+    // find core info entry: an MRA file names its core (<rbf>), other files go by folder
     core_info *core = NULL;
     string path = fname.substr(fname.find(":")+1);
-    for (int i = 0; i < core_info_list.size(); i++) {
-        core_info *c = &core_info_list[i];
-        if (path.find(c->rom_dir) == 0) {
-            overlay_status("ROM for: %s", c->display_name);
-            core = c;
-            break;
+    if (path.size() > 4 && strcasecmp(path.c_str() + path.size() - 4, ".mra") == 0) {
+        mra_info mra;
+        string err;
+        if (!mra_load(&fcore, fname.c_str(), mra, err)) {
+            overlay_message(err.c_str(), 1);
+            return -1;
+        }
+        core = find_core_by_rbf(mra.rbf.c_str());
+        if (core == NULL) {
+            overlay_message(("No core for this game:\n<rbf>" + mra.rbf + "</rbf>").c_str(), 1);
+            return -1;
+        }
+        overlay_status("MRA for: %s", core->display_name);
+    } else {
+        for (int i = 0; i < core_info_list.size(); i++) {
+            core_info *c = &core_info_list[i];
+            if (!c->rbf && path.find(c->rom_dir) == 0) {
+                overlay_status("ROM for: %s", c->display_name);
+                core = c;
+                break;
+            }
         }
     }
     if (core == NULL) {
+        if (prefix(ARCADE_DIR "/", path.c_str()))
+            overlay_message("Arcade games are\n.mra files", 1);
         overlay_status("Core not found: %s", path.c_str());
         return -1;
     }
