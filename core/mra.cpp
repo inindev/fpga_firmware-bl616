@@ -298,9 +298,6 @@ bool parse_rom(const xml_node &x, mra_rom &rom, std::string &err) {
             rom.index = i;
         } else if (strcasecmp(n, "zip") == 0) {
             rom.zip = a.value;
-        } else if (strcasecmp(n, "md5") == 0) {
-            if (!a.value.empty() && strcasecmp(v, "none") != 0)
-                return error_at(err, x, "<rom md5> check unsupported");
         } else if (strcasecmp(n, "address") == 0) {
             return error_at(err, x, "<rom address> unsupported");
         }

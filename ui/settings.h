@@ -1,21 +1,28 @@
 #pragma once
 
 // Settings saved in tangcore.ini at the root of the drive (SD card or USB drive), an INI
-// file with a [TangCore] section:
+// file with a [TangCore] section for the Options screen, and a section for each core with
+// settings in its in-game menu:
 //
 //   [TangCore]
 //   ; menu font: serif or sans
 //   font=serif
 //   ; gamepad button for the menu: select+start or select+right
 //   menu_button=select+start
+//   [burgertime]
+//   ; rotate the picture: on or off
+//   rotate=on
 //
 // A missing file, an unknown key or an unknown value leaves the default. Keys in other
-// sections are ignored, which leaves room for per-core sections.
+// sections are ignored.
 
 // Menu font, an index into menu_fonts (menu_fonts.h): 0 is the one in the cores' font ROM
 #define FONT_SERIF  0
 #define FONT_SANS   1
 extern int option_font;
+
+// BurgerTime: picture rotated (1) or not (0)
+extern int option_burgertime_rotate;
 
 // read the settings from the drive (drv); false if there is no file or it can't be read
 bool settings_load(void);

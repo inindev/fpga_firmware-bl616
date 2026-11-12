@@ -47,7 +47,9 @@ void init_core_list() {
         {4, "MegaDrive / Genesis", "genesis", "mdtang.bin", NULL, loadmd, create_default_menu},
         {5, "Sega Master System", "sms", "smstang.bin", NULL, loadsms, create_default_menu},
         {6, "IBM PC/XT", "pc", "pctang.bin", NULL, loadpc, create_pcxt_menu},
-        {7, "Arcade", ARCADE_DIR, "taitosj.bin", "TaitoSJ", loadtaitosj, create_default_menu}
+        {7, "Arcade", ARCADE_DIR, "taitosj.bin", "TaitoSJ", loadtaitosj, create_default_menu},
+        // more arcade cores: not in the main menu, the Arcade entry lists all MRA files
+        {8, "Arcade", ARCADE_DIR, "burgertime.bin", "burgertime", loadburgertime, create_burgertime_menu}
     };
 
     main_menu_config = {1,2,

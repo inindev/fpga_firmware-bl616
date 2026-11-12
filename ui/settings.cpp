@@ -8,6 +8,7 @@
 #include "utils.h"
 
 int option_font = FONT_SERIF;
+int option_burgertime_rotate = 1;
 
 // A setting: its key in the file, the comment written above it, its name in Options, the
 // variable it sets and its choices (value in the file, label in Options, variable's value).
@@ -40,6 +41,23 @@ static const Setting settings[] = {
 };
 #define SETTINGS_COUNT (int)(sizeof(settings) / sizeof(settings[0]))
 
+// Core settings, each in the core's section, changed in the core's in-game menu (not in
+// Options). A core's settings are next to each other.
+struct CoreSetting {
+    const char *section;
+    Setting setting;
+};
+
+static const Choice on_off_choices[] = {
+    {"on", "On", 1},
+    {"off", "Off", 0},
+};
+static const CoreSetting core_settings[] = {
+    {"burgertime", {"rotate", "rotate the picture: on or off", "Rotate screen",
+                    &option_burgertime_rotate, on_off_choices, 2}},
+};
+#define CORE_SETTINGS_COUNT (int)(sizeof(core_settings) / sizeof(core_settings[0]))
+
 // the file and its text, where the USB host can reach them (as fcore and fbuf in main.cpp)
 static USB_NOCACHE_RAM_SECTION FIL fset;
 static USB_NOCACHE_RAM_SECTION char __attribute__((aligned(64))) ini_text[1024];
@@ -68,15 +86,22 @@ static void drop_spaces(char *s) {
     *d = 0;
 }
 
-static void set_value(const char *key, char *value) {
+static void set_choice(const Setting &s, const char *key, const char *value) {
+    if (strcasecmp(key, s.key) != 0)
+        return;
+    for (int j = 0; j < s.count; j++)
+        if (strcasecmp(value, s.choices[j].value) == 0)
+            *s.var = s.choices[j].id;
+}
+
+static void set_value(const char *section, const char *key, char *value) {
     drop_spaces(value);
-    for (int i = 0; i < SETTINGS_COUNT; i++) {
-        if (strcasecmp(key, settings[i].key) != 0)
-            continue;
-        for (int j = 0; j < settings[i].count; j++)
-            if (strcasecmp(value, settings[i].choices[j].value) == 0)
-                *settings[i].var = settings[i].choices[j].id;
-    }
+    if (strcasecmp(section, "TangCore") == 0)
+        for (int i = 0; i < SETTINGS_COUNT; i++)
+            set_choice(settings[i], key, value);
+    for (int i = 0; i < CORE_SETTINGS_COUNT; i++)
+        if (strcasecmp(section, core_settings[i].section) == 0)
+            set_choice(core_settings[i].setting, key, value);
 }
 
 bool settings_load(void) {
@@ -93,7 +118,7 @@ bool settings_load(void) {
     char *line = ini_text;
     if (strncmp(line, "\xEF\xBB\xBF", 3) == 0)      // UTF-8 byte order mark, from some editors
         line += 3;
-    bool ours = true;           // in [TangCore], or before any section
+    const char *section = "TangCore";       // before any section: [TangCore]
     while (line) {
         char *next = strchr(line, '\n');
         if (next)
@@ -103,8 +128,8 @@ bool settings_load(void) {
             char *end = strchr(s, ']');
             if (end)
                 *end = 0;
-            ours = strcasecmp(trim(s + 1), "TangCore") == 0;
-        } else if (ours && *s && *s != ';' && *s != '#') {
+            section = trim(s + 1);
+        } else if (*s && *s != ';' && *s != '#') {
             char *eq = strchr(s, '=');
             if (eq) {
                 *eq = 0;
@@ -112,25 +137,35 @@ bool settings_load(void) {
                 char *comment = strchr(value, ';');
                 if (comment)
                     *comment = 0;
-                set_value(trim(s), trim(value));
+                set_value(section, trim(s), trim(value));
             }
         }
         line = next;
     }
-    DEBUG("settings: font=%d menu_button=%d\n", option_font, option_osd_key);
+    DEBUG("settings: font=%d menu_button=%d burgertime rotate=%d\n", option_font, option_osd_key,
+          option_burgertime_rotate);
     return true;
+}
+
+// a setting's lines in the file: its comment, then key=value
+static std::string setting_text(const Setting &s) {
+    const char *value = s.choices[0].value;
+    for (int j = 0; j < s.count; j++)
+        if (*s.var == s.choices[j].id)
+            value = s.choices[j].value;
+    return std::string("; ") + s.comment + "\n" + s.key + "=" + value + "\n";
 }
 
 // The whole file is written again, with every setting.
 bool settings_save(void) {
-    std::string text = "; TangCore settings, written by the Options menu\n[TangCore]\n";
-    for (int i = 0; i < SETTINGS_COUNT; i++) {
-        const Setting &s = settings[i];
-        const char *value = s.choices[0].value;
-        for (int j = 0; j < s.count; j++)
-            if (*s.var == s.choices[j].id)
-                value = s.choices[j].value;
-        text += std::string("; ") + s.comment + "\n" + s.key + "=" + value + "\n";
+    std::string text = "; TangCore settings, written by the menus\n[TangCore]\n";
+    for (int i = 0; i < SETTINGS_COUNT; i++)
+        text += setting_text(settings[i]);
+    for (int i = 0; i < CORE_SETTINGS_COUNT; i++) {
+        const CoreSetting &c = core_settings[i];
+        if (i == 0 || strcmp(c.section, core_settings[i - 1].section) != 0)
+            text += std::string("[") + c.section + "]\n";
+        text += setting_text(c.setting);
     }
     if (text.size() > sizeof(ini_text))
         return false;

@@ -32,6 +32,7 @@ extern int loadmd(const char *fname);
 extern int loadsms(const char *fname);
 extern int loadpc(const char *fname);
 extern int loadtaitosj(const char *fname);
+extern int loadburgertime(const char *fname);
 
 // Arcade cores: .mra files in ARCADE_DIR, MAME zips in ARCADE_DIR/mame (core/arcade.cpp).
 // A core maps the MRA's settings to its core_config: `roms` has every <rom> other than
@@ -53,6 +54,7 @@ struct PcxtMenu: Menu {
 
 Menu *create_default_menu(const char *imgdir);
 Menu *create_pcxt_menu(const char *imgdir);
+Menu *create_burgertime_menu(const char *imgdir);
 
 extern bool floppy[2];
 extern std::string floppy_fname[2];

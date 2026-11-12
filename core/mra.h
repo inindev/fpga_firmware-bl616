@@ -5,15 +5,16 @@
 //
 //   <rbf>                       the core, matched to core_info::rbf
 //   <switches default="..">     DIP switch defaults, hex bytes: byte i is bits 8i-8i+7
-//   <rom index="N" zip="a.zip|b.zip" md5="none">
+//   <rom index="N" zip="a.zip|b.zip" [md5=".."]>
 //     <part name=".." crc=".." [zip=".."] [offset=".."] [length=".."] [repeat=".."]/>
 //                               a file from the zip(s), found by CRC, else by name
 //     <part [repeat=".."]> hex bytes </part>
 //                               the bytes in the text, `repeat` times
 //
 // Not supported, reported as errors: <interleave>, <patch>, <part map=..>, <rom address=..>,
-// an md5 other than "none", and more than one <rom> with the same index. Everything else
-// (buttons, dip lists, nvram, cheats, ...) is ignored, as it does not change the ROM image.
+// and more than one <rom> with the same index. Everything else (md5, buttons, dip lists,
+// nvram, cheats, ...) is ignored, as it does not change the ROM image. The md5 is not
+// checked: each file is checked against its zip's CRC instead (mra_image.h).
 // No file system code here, so it can be tested off the board.
 
 #include <stdint.h>
