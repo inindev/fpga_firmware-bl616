@@ -95,9 +95,16 @@ void wait_joy_release(uint16_t mask);
 extern int joy_choice(int start_line, int len, int *active, int overlay_key_code);
 extern void send_blank_packet(void);
 
+// The SDK's clock setup assumes a 40 MHz crystal on the BL616. The Consoles and the Nano 20K
+// have one; the Primer 25K has 26 MHz (per upstream), so its clocks run at 26/40 speed and
+// the UART baud rate and delay() compensate.
+#if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K) || defined(TANG_NANO20K)
+#define BL616_XTAL_40MHZ
+#endif
+
 static inline void delay(uint32_t ms)
 {
-#if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
+#ifdef BL616_XTAL_40MHZ
     vTaskDelay(pdMS_TO_TICKS(ms));
 #else
     // compensate for 26MHz clock instead of 40MHz

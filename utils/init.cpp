@@ -53,11 +53,10 @@ void init_gpio_and_uart() {
     /* Set up Core control UART parameters */
     struct bflb_uart_config_s uart1_cfg = {
         // .baudrate = 1000000,
-#if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K) || defined(TANG_NANO20K)
-        // Nano 20K: the BL616 has a 40 MHz crystal (schematic)
+#ifdef BL616_XTAL_40MHZ
         .baudrate = 2000000,
 #else
-        // all other boards have 26Mhz XTAL
+        // 26 MHz crystal (see BL616_XTAL_40MHZ in utils.h)
         .baudrate = 2000000 * 40 / 26,
 #endif
         .direction = UART_DIRECTION_TXRX,
