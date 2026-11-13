@@ -12,6 +12,9 @@
 //   [burgertime]
 //   ; rotate the picture: on or off
 //   rotate=on
+//   [galaga]
+//   ; rotate the picture: on or off
+//   rotate=on
 //
 // A missing file, an unknown key or an unknown value leaves the default. Keys in other
 // sections are ignored.
@@ -23,6 +26,9 @@ extern int option_font;
 
 // BurgerTime: picture rotated (1) or not (0)
 extern int option_burgertime_rotate;
+
+// Galaga: picture rotated (1) or not (0)
+extern int option_galaga_rotate;
 
 // read the settings from the drive (drv); false if there is no file or it can't be read
 bool settings_load(void);

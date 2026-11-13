@@ -747,7 +747,7 @@ static void main_task(void *pvParameters)
                 // overlay is turned back on: show the main menu, cursor on "Resume game"
                 choice = 0;
                 redraw = true;
-                // cores with their own pop-up menu: PC/XT (floppy images), BurgerTime (rotation)
+                // cores with their own pop-up menu: PC/XT (floppy images), BurgerTime and Galaga (rotation)
                 core_info *core = find_core_by_id(active_core);
                 if (core != NULL && core->create_menu != create_default_menu) {
                     DEBUG("Displaying pop-up menu\n");

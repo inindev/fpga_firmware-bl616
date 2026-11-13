@@ -9,6 +9,7 @@
 
 int option_font = FONT_SERIF;
 int option_burgertime_rotate = 1;
+int option_galaga_rotate = 1;
 
 // A setting: its key in the file, the comment written above it, its name in Options, the
 // variable it sets and its choices (value in the file, label in Options, variable's value).
@@ -55,6 +56,8 @@ static const Choice on_off_choices[] = {
 static const CoreSetting core_settings[] = {
     {"burgertime", {"rotate", "rotate the picture: on or off", "Rotate screen",
                     &option_burgertime_rotate, on_off_choices, 2}},
+    {"galaga", {"rotate", "rotate the picture: on or off", "Rotate screen",
+                &option_galaga_rotate, on_off_choices, 2}},
 };
 #define CORE_SETTINGS_COUNT (int)(sizeof(core_settings) / sizeof(core_settings[0]))
 
@@ -142,8 +145,8 @@ bool settings_load(void) {
         }
         line = next;
     }
-    DEBUG("settings: font=%d menu_button=%d burgertime rotate=%d\n", option_font, option_osd_key,
-          option_burgertime_rotate);
+    DEBUG("settings: font=%d menu_button=%d burgertime rotate=%d galaga rotate=%d\n", option_font,
+          option_osd_key, option_burgertime_rotate, option_galaga_rotate);
     return true;
 }
 

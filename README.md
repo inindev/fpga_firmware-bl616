@@ -23,7 +23,7 @@ Choose the board with `TANG_BOARD` (default `console60k`):
 
 | `TANG_BOARD` | Board | Cores in the menu |
 |---|---|---|
-| `nano20k` | Tang Nano 20K | NES, SNES, Arcade (Taito SJ, BurgerTime) |
+| `nano20k` | Tang Nano 20K | NES, SNES, Arcade (Taito SJ, BurgerTime, Galaga) |
 | `console60k`, `console138k` | Tang Console 60K / 138K | NES, SNES, GBA, Genesis, SMS, PC/XT |
 | `mega60k`, `mega138k` | Tang Mega 60K / 138K | NES, SNES, GBA, Genesis, SMS, PC/XT |
 | `primer25k` | Tang Primer 25K | NES, SNES |
@@ -88,7 +88,7 @@ cores/<board>/nestang.bin
 cores/<board>/snestang.bin   ...
 nes/                         .nes ROMs
 snes/                        .sfc / .smc ROMs
-arcade/                      arcade games: .mra files (Nano 20K: Taito SJ, BurgerTime)
+arcade/                      arcade games: .mra files (Nano 20K: Taito SJ, BurgerTime, Galaga)
 arcade/mame/                 MAME ROM zips, e.g. elevator.zip
 ```
 
@@ -116,8 +116,8 @@ When you choose a game, the firmware
   data, as MiSTer reads them);
 - sends the game's settings as the core's configuration: each core maps the MRA's DIP switch
   defaults (`<switches default>`) and its other `<rom>`s to it. Taito SJ: switch bytes 1-3
-  and the PCB byte in `<rom index="1">`. BurgerTime: switch bytes 0-1 and the in-game menu's
-  Rotate screen setting (saved in `tangcore.ini`).
+  and the PCB byte in `<rom index="1">`. BurgerTime and Galaga: switch bytes 0-1 and the
+  in-game menu's Rotate screen setting (saved in `tangcore.ini`).
 
 A missing zip or ROM file, or a damaged zip, is shown on screen. The DIP switches are the MRA's
 defaults; they can't be changed in the menu. MRA features that change how the image is built

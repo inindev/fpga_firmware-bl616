@@ -49,7 +49,8 @@ void init_core_list() {
         {6, "IBM PC/XT", "pc", "pctang.bin", NULL, loadpc, create_pcxt_menu},
         {7, "Arcade", ARCADE_DIR, "taitosj.bin", "TaitoSJ", loadtaitosj, create_default_menu},
         // more arcade cores: not in the main menu, the Arcade entry lists all MRA files
-        {8, "Arcade", ARCADE_DIR, "burgertime.bin", "burgertime", loadburgertime, create_burgertime_menu}
+        {8, "Arcade", ARCADE_DIR, "burgertime.bin", "burgertime", loadburgertime, create_burgertime_menu},
+        {9, "Arcade", ARCADE_DIR, "galaga.bin", "galaga", loadgalaga, create_galaga_menu}
     };
 
     main_menu_config = {1,2,
