@@ -6,11 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # SDK components are selected in defconfig
 
-if(TANG_BOARD STREQUAL "mega60k")
-    add_definitions(-DTANG_MEGA60K)
-elseif(TANG_BOARD STREQUAL "mega138k")
-    add_definitions(-DTANG_MEGA138K)
-elseif(TANG_BOARD STREQUAL "console60k") 
+if(TANG_BOARD STREQUAL "console60k")
     add_definitions(-DTANG_CONSOLE60K)
 elseif(TANG_BOARD STREQUAL "console138k")
     add_definitions(-DTANG_CONSOLE138K)
@@ -18,6 +14,8 @@ elseif(TANG_BOARD STREQUAL "primer25k")
     add_definitions(-DTANG_PRIMER25K)
 elseif(TANG_BOARD STREQUAL "nano20k")
     add_definitions(-DTANG_NANO20K)
+else()
+    message(FATAL_ERROR "TANG_BOARD '${TANG_BOARD}': use nano20k, primer25k, console60k or console138k")
 endif()
 
 find_package(bouffalo_sdk REQUIRED HINTS $ENV{BL_SDK_BASE})

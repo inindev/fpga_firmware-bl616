@@ -74,10 +74,6 @@ TaskHandle_t uart1_rx_task_handle;
 const char *BOARD_NAME = "console60k";
 #elif defined(TANG_CONSOLE138K)
 const char *BOARD_NAME = "console138k";
-#elif defined(TANG_MEGA60K)
-const char *BOARD_NAME = "mega60k";
-#elif defined(TANG_MEGA138K)
-const char *BOARD_NAME = "mega138k";
 #elif defined(TANG_PRIMER25K)
 const char *BOARD_NAME = "primer25k";
 #elif defined(TANG_NANO20K)
@@ -508,12 +504,11 @@ static void uart1_rx_task(void *pvParameters)
 // Device Mode at power-up: without a USB device on the port (the board is plugged into a
 // PC, which never pulls up D+/D-), restart as the USB debugger, so that the PC can program
 // the FPGA. DEVICE_MODE: boards without an SD card, checked first. DEVICE_MODE_SD: boards
-// with an SD card, checked only when no SD card mounts. Primer 25K and Mega 60K/138K: untested
-// (FPGA-Companion restarts into the Partner firmware the same way on them).
+// with an SD card, checked only when no SD card mounts. Primer 25K: untested (FPGA-Companion
+// restarts into the Partner firmware the same way on it).
 #if defined(TANG_NANO20K)
 #define DEVICE_MODE
-#elif defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K) || defined(TANG_PRIMER25K) || \
-      defined(TANG_MEGA60K) || defined(TANG_MEGA138K)
+#elif defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K) || defined(TANG_PRIMER25K)
 #define DEVICE_MODE_SD
 #endif
 

@@ -53,9 +53,9 @@ const int JTAG_DELAY=32;                			// 320Mhz / 5Mhz / 2 = 32 cycles
 
 // Tang Primer 25K
 #define IDCODE_GW5A_25 0x0001281b
-// Tang Mega/Console 60K
+// Tang Console 60K
 #define IDCODE_GW5AT_60 0x0001481b
-// Tang Mega/Console/Mega Pro 138K
+// Tang Console 138K
 #define IDCODE_GWAST_138 0x0001081b
 // Not a current Tang board
 #define IDCODE_GW5AT_138 0x0001181b

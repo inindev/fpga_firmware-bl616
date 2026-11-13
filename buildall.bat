@@ -7,7 +7,7 @@ del /Q buildall\*
 
 REM List of boards to build
 set "boards=console60k console138k"
-@REM set "boards=console60k console138k mega60k mega138k primer25k"
+@REM set "boards=console60k console138k primer25k"
 
 for %%b in (%boards%) do (
     echo Building for board: %%b
@@ -28,10 +28,6 @@ for %%b in (%boards%) do (
             copy /Y bl616_fpga_partner_60kConsole.bin buildall\bl616_fpga_partner_%%b.bin
         ) else if "%%b"=="console138k" (
             copy /Y bl616_fpga_partner_60kConsole.bin buildall\bl616_fpga_partner_%%b.bin
-        ) else if "%%b"=="mega60k" (
-            copy /Y bl616_fpga_partner_138k60kNeoDock.bin buildall\bl616_fpga_partner_%%b.bin
-        ) else if "%%b"=="mega138k" (
-            copy /Y bl616_fpga_partner_138k60kNeoDock.bin buildall\bl616_fpga_partner_%%b.bin
         ) else if "%%b"=="primer25k" (
             copy /Y bl616_fpga_partner_25kDock.bin buildall\bl616_fpga_partner_%%b.bin
         ) else if "%%b"=="nano20k" (

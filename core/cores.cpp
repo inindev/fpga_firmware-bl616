@@ -54,7 +54,7 @@ void init_core_list() {
     };
 
     main_menu_config = {1,2,
-#if defined(TANG_MEGA60K) || defined(TANG_MEGA138K) || defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
+#if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
         3,4,5,6,
 #endif
 #if defined(TANG_NANO20K)

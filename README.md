@@ -25,7 +25,6 @@ Choose the board with `TANG_BOARD` (default `console60k`):
 |---|---|---|
 | `nano20k` | Tang Nano 20K | NES, SNES, Arcade (Taito SJ, BurgerTime, Galaga) |
 | `console60k`, `console138k` | Tang Console 60K / 138K | NES, SNES, GBA, Genesis, SMS, PC/XT |
-| `mega60k`, `mega138k` | Tang Mega 60K / 138K | NES, SNES, GBA, Genesis, SMS, PC/XT |
 | `primer25k` | Tang Primer 25K | NES, SNES |
 
 ## Building
