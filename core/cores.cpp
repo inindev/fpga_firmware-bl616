@@ -57,9 +57,7 @@ void init_core_list() {
 #if defined(TANG_CONSOLE60K) || defined(TANG_CONSOLE138K)
         3,4,5,6,
 #endif
-#if defined(TANG_NANO20K)
-        7,
-#endif
+        7,                  // Arcade: every board
         -1, -2
     };
 }

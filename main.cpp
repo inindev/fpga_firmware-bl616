@@ -118,8 +118,30 @@ FileChooser file_chooser;
 // dir: initial dir including the drive name (e.g. "sd:nes", "usb:cores")
 // return 0: user chose a ROM (*choice), 1: no choice made, -1: error
 // file chosen: pwd / file_name[*choice]
+// A menu entry's folder (sd:arcade, usb:nes, ...) is missing: a pop-up says what to copy where
+// (it waits for A or B). Without it the file list could not open and the menu came straight back.
+static bool folder_missing(const char *dir) {
+    FILINFO fno;
+    if (f_stat(dir, &fno) == FR_OK && (fno.fattrib & AM_DIR))
+        return false;
+    string d(dir);
+    string name = d.substr(d.find(':') + 1);
+    string where = strncmp(dir, "usb:", 4) == 0 ? "USB drive" : "SD card";
+    string msg = "No /" + name + " folder\n\n";
+    if (name == ARCADE_DIR)
+        msg += "Copy the game .mra files\nand their ROM .zip\nfiles there, on the\n" + where;
+    else if (name == "cores")
+        msg += "Copy the cores folder\nof the release there, on\nthe " + where;
+    else
+        msg += "Copy your games there,\non the " + where;
+    overlay_message(msg.c_str(), 1);
+    return true;
+}
+
 static int menu_loadrom(const char *dir) {
     string fname;
+    if (folder_missing(dir))
+        return 1;
     file_chooser.rootdir = dir;
     file_chooser.curdir = dir;
     file_chooser.msg_return = "<< Return to main menu";
